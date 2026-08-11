@@ -52,8 +52,11 @@ plus the audio's total duration.
 4. **Preview player** — a `<canvas>` driven by an `<audio>` element: on `timeupdate`,
    draw the image whose `[start, start+duration)` contains `currentTime`. Play/pause/seek,
    and surface any validation warnings so the user catches a wrong/missing image before rendering.
-5. **Render settings** — resolution/aspect (`1920×1080` or `1080×1920`), fps (24/30),
-   image fit (contain with black pad, default).
+5. **Render settings** — **output aspect** selector with three choices: **16:9
+   (`1920×1080`, default)**, **9:16 (`1080×1920`)**, and **Auto** (match the aspect of the
+   uploaded images — assumes a consistent set, as generated batches are). fps (24/30).
+   **Image fit = contain** (letterbox with black pad), which only applies when an image's
+   aspect differs from the chosen frame; with Auto it never letterboxes.
 6. **Renderer (`ffmpeg.wasm`)** — build the MP4 from the timed image sequence + audio.
 7. **Result panel** — download link + basic info (duration, size).
 
