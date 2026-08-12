@@ -1,6 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Timeline from "./Timeline";
+import {
+  TRANSITION_LIST, transitionOf,
+  MIN_TRANSITION_DURATION, MAX_TRANSITION_DURATION,
+} from "../lib/transitions";
 
 function tc(t) {
   if (!isFinite(t) || t < 0) t = 0;
@@ -15,6 +19,7 @@ export default function Editor({
   aspect, setAspect, fps, setFps,
   onRender, busy, progress, outUrl, error, warnings,
   replaceImage, removeImage, fillGap,
+  transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
@@ -23,6 +28,8 @@ export default function Editor({
   const pending = useRef(null); // { mode: "replace" | "add", name }
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [selectedCut, setSelectedCut] = useState(null); // clip name whose incoming cut is being edited
+  const [currentType, setCurrentType] = useState("fade");
 
   const askReplace = useCallback((name) => {
     pending.current = { mode: "replace", name };
@@ -49,17 +56,36 @@ export default function Editor({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    ctx.globalAlpha = 1;
     ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const clip = clips.find((c) => t >= c.start && t < c.start + c.duration) || clips[clips.length - 1];
-    if (!clip) return;
+    ctx.fillRect(0, 0, W, H);
+    if (!clips.length) return;
+
+    let idx = clips.findIndex((c) => t >= c.start && t < c.start + c.duration);
+    if (idx === -1) idx = clips.length - 1;
+    const clip = clips[idx];
+
+    const type = idx > 0 ? (transitionsByName[clip.name] || "cut") : "cut";
+    const tdur = type === "cut" ? 0 : Math.min(transitionDuration, clip.duration);
+
+    if (idx > 0 && tdur > 0 && t < clip.start + tdur) {
+      // Inside a transition: blend the previous image into this one.
+      const p = Math.min(1, Math.max(0, (t - clip.start) / tdur));
+      const fromImg = imageEls[clips[idx - 1].name] || null;
+      const toImg = imageEls[clip.name] || null;
+      transitionOf(type).canvas(ctx, fromImg, toImg, p, W, H);
+      ctx.globalAlpha = 1;
+      return;
+    }
+
     const img = imageEls[clip.name];
     if (!img) return;
-    const scale = Math.min(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight);
+    const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
     const w = img.naturalWidth * scale;
     const h = img.naturalHeight * scale;
-    ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
-  }, [clips, imageEls]);
+    ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+  }, [clips, imageEls, transitionsByName, transitionDuration]);
 
   useEffect(() => { draw(time); }, [time, draw]);
   useEffect(() => { setTime(0); }, [audioUrl]);
@@ -117,6 +143,19 @@ export default function Editor({
   const imageCount = imageClips.length;
   const gapCount = clips.length - imageCount;
   const activeIndex = active && !active.gap ? imageClips.indexOf(active) + 1 : 0;
+
+  const selectCut = useCallback((name) => {
+    setSelectedCut(name);
+    setCurrentType(transitionsByName[name] || "cut");
+  }, [transitionsByName]);
+
+  const pickType = useCallback((type) => {
+    setCurrentType(type);
+    if (selectedCut) setTransition(selectedCut, type);
+  }, [selectedCut, setTransition]);
+
+  const selectedClip = selectedCut && clips.find((c) => c.name === selectedCut);
+  const selectedIndex = selectedClip ? clips.indexOf(selectedClip) : -1;
 
   return (
     <section className="editor">
@@ -195,6 +234,48 @@ export default function Editor({
         </aside>
       </div>
 
+      <div className="transitions">
+        <div className="transitions__head">
+          <span className="transitions__title">Transitions</span>
+          <span className="transitions__target">
+            {selectedIndex > 0
+              ? `Cut before image ${imageClips.indexOf(selectedClip) + 1 || "—"} · ${tc(selectedClip.start)}`
+              : "Pick a cut ◇ on the timeline, or apply one to all"}
+          </span>
+        </div>
+
+        <div className="transitions__chips">
+          {TRANSITION_LIST.map((tr) => (
+            <button
+              key={tr.id}
+              type="button"
+              className={`trchip ${currentType === tr.id ? "is-on" : ""}`}
+              onClick={() => pickType(tr.id)}
+            >
+              <span className="trchip__icon">{tr.icon}</span>{tr.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="transitions__foot">
+          <label className="trdur">
+            <span>Duration</span>
+            <input
+              type="range" min={MIN_TRANSITION_DURATION} max={MAX_TRANSITION_DURATION} step={0.05}
+              value={transitionDuration}
+              onChange={(e) => setTransitionDuration(+e.target.value)}
+            />
+            <span className="trdur__val">{transitionDuration.toFixed(2)}s</span>
+          </label>
+          <button
+            type="button" className="trall"
+            onClick={() => applyTransitionAll(currentType, clips.map((c) => c.name))}
+          >
+            Apply “{transitionOf(currentType).label}” to all cuts
+          </button>
+        </div>
+      </div>
+
       {warnings.length > 0 && (
         <div className="notes">
           {warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
@@ -209,6 +290,9 @@ export default function Editor({
         peaks={peaks}
         activeName={active && active.name}
         badClips={badClips}
+        transitionsByName={transitionsByName}
+        selectedCut={selectedCut}
+        onSelectCut={selectCut}
         onSeek={seek}
         onReplace={askReplace}
         onRemove={removeImage}

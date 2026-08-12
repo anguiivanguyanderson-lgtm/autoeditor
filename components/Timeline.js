@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useRef } from "react";
+import { transitionOf } from "../lib/transitions";
 
 function label(t) {
   const m = Math.floor(t / 60);
@@ -24,6 +25,7 @@ function Waveform({ peaks }) {
 // waveform, playhead and click-to-seek all share the track's coordinate space.
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
+  transitionsByName, selectedCut, onSelectCut,
   onSeek, onReplace, onRemove, onAdd,
 }) {
   const trackRef = useRef(null);
@@ -65,6 +67,32 @@ export default function Timeline({
               {label(t)}
             </span>
           ))}
+        </div>
+      </div>
+
+      <div className="tl__row tl__row--cuts">
+        <div className="tl__gutter" aria-hidden="true" />
+        <div className="tl__cuts">
+          {clips.map((c, i) => {
+            if (i === 0) return null;
+            const tr = transitionOf(transitionsByName && transitionsByName[c.name]);
+            const cls = ["cut"];
+            if (selectedCut === c.name) cls.push("is-sel");
+            if (tr.xfade) cls.push("is-on");
+            return (
+              <button
+                key={c.name}
+                type="button"
+                className={cls.join(" ")}
+                style={{ left: pct(c.start) }}
+                title={`Transition: ${tr.label} — click to change`}
+                onPointerDown={stop}
+                onClick={() => onSelectCut && onSelectCut(c.name)}
+              >
+                {tr.icon}
+              </button>
+            );
+          })}
         </div>
       </div>
 

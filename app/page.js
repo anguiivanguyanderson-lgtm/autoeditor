@@ -7,6 +7,7 @@ import { resolveDimensions } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo } from "../lib/ffmpegRender";
+import { DEFAULT_TRANSITION_DURATION } from "../lib/transitions";
 import Dropzone from "../components/Dropzone";
 import Editor from "../components/Editor";
 
@@ -33,6 +34,8 @@ export default function Home() {
   const [slots, setSlots] = useState([]);
   const [aspect, setAspect] = useState("16:9");
   const [fps, setFps] = useState(30);
+  const [transitionsByName, setTransitionsByName] = useState({}); // clip name -> transition id
+  const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [outUrl, setOutUrl] = useState(null);
@@ -107,6 +110,18 @@ export default function Home() {
     }
   }, []);
 
+  const setTransition = useCallback((name, type) => {
+    setTransitionsByName((prev) => ({ ...prev, [name]: type }));
+  }, []);
+  const applyTransitionAll = useCallback((type, clipNames) => {
+    setTransitionsByName(() => {
+      const next = {};
+      // Skip the first clip — it has no incoming cut.
+      for (let i = 1; i < clipNames.length; i++) next[clipNames[i]] = type;
+      return next;
+    });
+  }, []);
+
   const items = useMemo(
     () => slots.map((s) => ({ name: s.id, seconds: s.seconds, empty: s.empty })),
     [slots]
@@ -142,15 +157,17 @@ export default function Home() {
   const onRender = useCallback(async () => {
     setBusy(true); setError(null); setOutUrl(null); setProgress(0);
     try {
+      const transitions = clips.map((c) => transitionsByName[c.name] || "cut");
       const blob = await renderVideo({
         clips, imagesByName, audioFile,
         width: dims.width, height: dims.height, fps,
+        transitions, transitionDuration,
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
     } catch (e) { setError(e.message || String(e)); }
     finally { setBusy(false); }
-  }, [clips, imagesByName, audioFile, dims, fps]);
+  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration]);
 
   return (
     <main className="app">
@@ -219,6 +236,9 @@ export default function Home() {
           onRender={onRender} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
           replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}
+          transitionsByName={transitionsByName} transitionDuration={transitionDuration}
+          setTransition={setTransition} applyTransitionAll={applyTransitionAll}
+          setTransitionDuration={setTransitionDuration}
         />
       )}
     </main>
