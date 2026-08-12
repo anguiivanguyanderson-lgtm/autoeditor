@@ -14,7 +14,7 @@ function loadImageEl(file) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => resolve({ img, url });
+    img.onload = () => { img.url = url; resolve(img); };
     img.src = url;
   });
 }
@@ -24,9 +24,8 @@ export default function Home() {
   const [audioUrl, setAudioUrl] = useState(null);
   const [audioDuration, setAudioDuration] = useState(0);
   const [peaks, setPeaks] = useState([]);
-  const [imagesByName, setImagesByName] = useState({});
-  const [imageEls, setImageEls] = useState({});
-  const [items, setItems] = useState([]);
+  const [imagesByName, setImagesByName] = useState({}); // name -> File
+  const [imageEls, setImageEls] = useState({});         // name -> HTMLImageElement (with .url)
   const [aspect, setAspect] = useState("16:9");
   const [fps, setFps] = useState(30);
   const [busy, setBusy] = useState(false);
@@ -47,17 +46,50 @@ export default function Home() {
     } catch (e) { setError(e.message); }
   }, []);
 
-  const onImages = useCallback(async (fileList) => {
+  // Merge imported images into the existing set (same filename overwrites).
+  const addImages = useCallback(async (fileList) => {
     const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
-    const byName = {}, els = {}, its = [];
-    for (const f of files) {
-      byName[f.name] = f;
-      its.push({ name: f.name, seconds: parseTimestampName(f.name) });
-      const { img, url } = await loadImageEl(f);
-      els[f.name] = img; els[f.name].url = url;
-    }
-    setImagesByName(byName); setImageEls(els); setItems(its);
+    if (!files.length) return;
+    const loaded = await Promise.all(files.map(async (f) => [f.name, f, await loadImageEl(f)]));
+    setImagesByName((prev) => {
+      const next = { ...prev };
+      for (const [name, file] of loaded) next[name] = file;
+      return next;
+    });
+    setImageEls((prev) => {
+      const next = { ...prev };
+      for (const [name, , img] of loaded) {
+        if (next[name] && next[name].url) URL.revokeObjectURL(next[name].url);
+        next[name] = img;
+      }
+      return next;
+    });
   }, []);
+
+  // Swap the image for one timeline slot, keeping the original name (timestamp).
+  const replaceImage = useCallback(async (name, file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const img = await loadImageEl(file);
+    setImagesByName((prev) => ({ ...prev, [name]: file }));
+    setImageEls((prev) => {
+      if (prev[name] && prev[name].url) URL.revokeObjectURL(prev[name].url);
+      return { ...prev, [name]: img };
+    });
+  }, []);
+
+  const removeImage = useCallback((name) => {
+    setImagesByName((prev) => { const n = { ...prev }; delete n[name]; return n; });
+    setImageEls((prev) => {
+      if (prev[name] && prev[name].url) URL.revokeObjectURL(prev[name].url);
+      const n = { ...prev }; delete n[name]; return n;
+    });
+  }, []);
+
+  const items = useMemo(
+    () => Object.keys(imagesByName).map((name) => ({ name, seconds: parseTimestampName(name) })),
+    [imagesByName]
+  );
+  const imageCount = items.length;
 
   const sample = useMemo(() => {
     const first = items.find((i) => imageEls[i.name]);
@@ -101,9 +133,9 @@ export default function Home() {
             filledLabel={audioFile ? audioFile.name : ""}
           />
           <Dropzone
-            compact multiple accept="image/*" onFiles={onImages} icon="▦"
-            title="Import images" filled={items.length > 0}
-            filledLabel={items.length ? `${items.length} images` : ""}
+            compact multiple accept="image/*" onFiles={addImages} icon="▦"
+            title="Add images" filled={imageCount > 0}
+            filledLabel={imageCount ? `${imageCount} images` : ""}
           />
         </div>
       </header>
@@ -126,15 +158,15 @@ export default function Home() {
               filledLabel={audioFile ? audioFile.name : ""}
             />
             <Dropzone
-              multiple accept="image/*" onFiles={onImages} icon="▦"
+              multiple accept="image/*" onFiles={addImages} icon="▦"
               title="Storyboard images"
               hint="Named by timestamp, e.g. 0-00, 0-06, 0-12"
-              filled={items.length > 0}
-              filledLabel={items.length ? `${items.length} images ready` : ""}
+              filled={imageCount > 0}
+              filledLabel={imageCount ? `${imageCount} images ready` : ""}
             />
           </div>
 
-          {items.length > 0 && warnings.length > 0 && (
+          {imageCount > 0 && warnings.length > 0 && (
             <div className="notes">{warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}</div>
           )}
           {error && <div className="note note--bad">{error}</div>}
@@ -152,6 +184,7 @@ export default function Home() {
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           onRender={onRender} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
+          replaceImage={replaceImage} removeImage={removeImage} addImages={addImages}
         />
       )}
     </main>

@@ -201,24 +201,29 @@ body {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; padding: 12px 14px 16px; user-select: none;
 }
-.tl__ruler { position: relative; height: 20px; margin: 0 0 6px 26px; overflow: hidden; }
+.tl__row { display: flex; gap: 8px; align-items: stretch; }
+.tl__row--ruler { margin-bottom: 4px; }
+.tl__gutter { flex: none; width: 22px; display: flex; flex-direction: column; gap: 6px; }
+
+.tl__ruler { position: relative; flex: 1; height: 18px; overflow: hidden; }
 .tl__tick {
   position: absolute; top: 0; font-family: var(--font-mono);
   font-size: 10.5px; color: var(--faint); padding-left: 5px;
 }
 .tl__tickline {
-  position: absolute; left: 0; top: 15px; width: 1px; height: 5px; background: var(--line);
+  position: absolute; left: 0; top: 13px; width: 1px; height: 5px; background: var(--line);
 }
-.tl__lanes { position: relative; touch-action: none; cursor: text; }
-.tl__lane { position: relative; margin-left: 26px; border-radius: 8px; background: var(--panel-2); }
-.tl__lane--video { height: 62px; overflow: hidden; }
-.tl__lane--audio { height: 40px; margin-top: 6px; overflow: hidden; }
+
+.tl__track { position: relative; flex: 1; min-width: 0; touch-action: none; cursor: text; }
+.tl__lane { position: relative; border-radius: 8px; background: var(--panel-2); overflow: hidden; }
+.tl__lane--video { height: 62px; }
+.tl__lane--audio { height: 40px; margin-top: 6px; }
 .tl__tag {
-  position: absolute; left: -26px; top: 0; bottom: 0; width: 22px;
-  display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px;
-  color: var(--faint); background: var(--panel-2); border-radius: 6px;
+  display: grid; place-items: center; height: 62px; width: 22px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--faint);
+  background: var(--panel-2); border-radius: 6px;
 }
-.tl__lane--audio .tl__tag { color: var(--teal); }
+.tl__tag--audio { height: 40px; color: var(--teal); }
 
 .clip {
   position: absolute; top: 0; bottom: 0; min-width: 2px;
@@ -234,13 +239,25 @@ body {
   font-family: var(--font-mono); font-size: 10px; color: #fff;
   background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 4px; white-space: nowrap;
 }
+.clip__actions {
+  position: absolute; top: 3px; right: 3px; z-index: 3;
+  display: flex; gap: 3px; opacity: 0; transition: opacity .12s;
+}
+.clip:hover .clip__actions, .clip:focus-within .clip__actions { opacity: 1; }
+.clip__btn {
+  width: 20px; height: 20px; display: grid; place-items: center;
+  border: none; border-radius: 5px; background: rgba(6,8,11,.82);
+  color: #fff; cursor: pointer; font-size: 11px; line-height: 1;
+}
+.clip__btn:hover { background: rgba(6,8,11,.96); }
+.clip__btn--x:hover { background: var(--bad); color: #200; }
 
 .wave { position: absolute; inset: 0; width: 100%; height: 100%; }
 .wave rect { fill: var(--teal); opacity: .8; }
 .wave--empty { position: absolute; inset: 0; background: rgba(52,208,186,.08); }
 
 .tl__playhead {
-  position: absolute; top: -2px; bottom: 0; width: 2px; margin-left: 26px;
+  position: absolute; top: -2px; bottom: 0; width: 2px;
   background: var(--amber); z-index: 5; pointer-events: none;
 }
 .tl__playhead-grip {

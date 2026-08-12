@@ -14,12 +14,28 @@ export default function Editor({
   clips, imageEls, audioUrl, duration, peaks, dims,
   aspect, setAspect, fps, setFps,
   onRender, busy, progress, outUrl, error, warnings,
+  replaceImage, removeImage,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
   const rafRef = useRef(0);
+  const replaceInputRef = useRef(null);
+  const pendingName = useRef(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+
+  const askReplace = useCallback((name) => {
+    pendingName.current = name;
+    if (replaceInputRef.current) replaceInputRef.current.click();
+  }, []);
+
+  const onReplaceFile = useCallback((e) => {
+    const file = e.target.files && e.target.files[0];
+    const name = pendingName.current;
+    if (file && name && replaceImage) replaceImage(name, file);
+    e.target.value = "";
+    pendingName.current = null;
+  }, [replaceImage]);
 
   const draw = useCallback((t) => {
     const canvas = canvasRef.current;
@@ -170,6 +186,13 @@ export default function Editor({
         activeName={active && active.name}
         badClips={badClips}
         onSeek={seek}
+        onReplace={askReplace}
+        onRemove={removeImage}
+      />
+
+      <input
+        ref={replaceInputRef} type="file" accept="image/*" hidden
+        onChange={onReplaceFile}
       />
     </section>
   );

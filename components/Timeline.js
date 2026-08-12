@@ -20,13 +20,16 @@ function Waveform({ peaks }) {
   );
 }
 
-// The signature element: a scrubbable two-lane track. Clip widths are
-// proportional to their on-screen duration, so timing is visible at a glance.
-export default function Timeline({ clips, imageEls, duration, time, peaks, activeName, badClips, onSeek }) {
-  const lanesRef = useRef(null);
+// The signature element: a scrubbable track with a fixed label gutter. Clips,
+// waveform, playhead and click-to-seek all share the track's coordinate space.
+export default function Timeline({
+  clips, imageEls, duration, time, peaks, activeName, badClips,
+  onSeek, onReplace, onRemove,
+}) {
+  const trackRef = useRef(null);
 
   const seekAt = useCallback((clientX) => {
-    const el = lanesRef.current;
+    const el = trackRef.current;
     if (!el || !duration) return;
     const r = el.getBoundingClientRect();
     const x = Math.min(Math.max(clientX - r.left, 0), r.width);
@@ -49,51 +52,69 @@ export default function Timeline({ clips, imageEls, duration, time, peaks, activ
   for (let t = 0; t <= duration + 0.001; t += step) ticks.push(Math.round(t));
 
   const pct = (v) => `${Math.min(100, (v / duration) * 100)}%`;
+  const stop = (e) => e.stopPropagation();
 
   return (
     <div className="tl">
-      <div className="tl__ruler">
-        {ticks.map((t) => (
-          <span className="tl__tick" key={t} style={{ left: pct(t) }}>
-            <i className="tl__tickline" />
-            {label(t)}
-          </span>
-        ))}
+      <div className="tl__row tl__row--ruler">
+        <div className="tl__gutter" aria-hidden="true" />
+        <div className="tl__ruler">
+          {ticks.map((t) => (
+            <span className="tl__tick" key={t} style={{ left: pct(t) }}>
+              <i className="tl__tickline" />
+              {label(t)}
+            </span>
+          ))}
+        </div>
       </div>
 
-      <div className="tl__lanes" ref={lanesRef} onPointerDown={onPointerDown}>
-        <div className="tl__lane tl__lane--video">
+      <div className="tl__row">
+        <div className="tl__gutter">
           <span className="tl__tag">V</span>
-          {clips.map((c) => {
-            const el = imageEls[c.name];
-            const bad = badClips && badClips.has(c.name);
-            const cls = ["clip"];
-            if (c.name === activeName) cls.push("is-active");
-            if (bad) cls.push("is-bad");
-            return (
-              <div
-                key={c.name}
-                className={cls.join(" ")}
-                style={{
-                  left: pct(c.start),
-                  width: pct(c.duration),
-                  backgroundImage: el && el.url ? `url(${el.url})` : undefined,
-                }}
-                title={`${c.name} · ${label(c.start)} · ${c.duration.toFixed(1)}s`}
-              >
-                <span className="clip__meta">{c.duration.toFixed(1)}s</span>
-              </div>
-            );
-          })}
+          <span className="tl__tag tl__tag--audio">A</span>
         </div>
 
-        <div className="tl__lane tl__lane--audio">
-          <span className="tl__tag">A</span>
-          <Waveform peaks={peaks} />
-        </div>
+        <div className="tl__track" ref={trackRef} onPointerDown={onPointerDown}>
+          <div className="tl__lane tl__lane--video">
+            {clips.map((c) => {
+              const el = imageEls[c.name];
+              const cls = ["clip"];
+              if (c.name === activeName) cls.push("is-active");
+              if (badClips && badClips.has(c.name)) cls.push("is-bad");
+              return (
+                <div
+                  key={c.name}
+                  className={cls.join(" ")}
+                  style={{
+                    left: pct(c.start),
+                    width: pct(c.duration),
+                    backgroundImage: el && el.url ? `url(${el.url})` : undefined,
+                  }}
+                  title={`${c.name} · ${label(c.start)} · ${c.duration.toFixed(1)}s`}
+                >
+                  <span className="clip__meta">{c.duration.toFixed(1)}s</span>
+                  <div className="clip__actions">
+                    <button
+                      type="button" className="clip__btn" title="Replace this image"
+                      onPointerDown={stop} onClick={() => onReplace && onReplace(c.name)}
+                    >⇄</button>
+                    <button
+                      type="button" className="clip__btn clip__btn--x" title="Remove this image"
+                      onPointerDown={stop} onClick={() => onRemove && onRemove(c.name)}
+                    >✕</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
-        <div className="tl__playhead" style={{ left: pct(time) }}>
-          <span className="tl__playhead-grip" />
+          <div className="tl__lane tl__lane--audio">
+            <Waveform peaks={peaks} />
+          </div>
+
+          <div className="tl__playhead" style={{ left: pct(time) }}>
+            <span className="tl__playhead-grip" />
+          </div>
         </div>
       </div>
     </div>
