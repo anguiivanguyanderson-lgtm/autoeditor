@@ -159,9 +159,9 @@ export default function Editor({
 
   return (
     <section className="editor">
-      <div className="stage">
+      <div className="main">
         <div className="viewer">
-          <div className="viewer__frame" style={{ aspectRatio: `${dims.width} / ${dims.height}` }}>
+          <div className="viewer__frame">
             <canvas ref={canvasRef} width={dims.width} height={dims.height} className="viewer__canvas" />
           </div>
 
@@ -186,29 +186,55 @@ export default function Editor({
           <audio ref={audioRef} src={audioUrl} hidden />
         </div>
 
-        <aside className="export">
-          <h2 className="export__h">Export</h2>
+        {warnings.length > 0 && (
+          <div className="notes notes--compact">
+            {warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
+          </div>
+        )}
 
-          <label className="ctrl">
-            <span className="ctrl__label">Aspect ratio</span>
-            <span className="selectwrap">
-              <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
-                <option value="16:9">16:9 — 1920×1080</option>
-                <option value="9:16">9:16 — 1080×1920</option>
-                <option value="auto">Auto — match images</option>
-              </select>
-            </span>
-          </label>
+        <Timeline
+          clips={clips}
+          imageEls={imageEls}
+          duration={duration}
+          time={time}
+          peaks={peaks}
+          activeName={active && active.name}
+          badClips={badClips}
+          transitionsByName={transitionsByName}
+          selectedCut={selectedCut}
+          onSelectCut={selectCut}
+          onSeek={seek}
+          onReplace={askReplace}
+          onRemove={removeImage}
+          onAdd={askAdd}
+        />
+      </div>
 
-          <label className="ctrl">
-            <span className="ctrl__label">Frame rate</span>
-            <span className="selectwrap">
-              <select value={fps} onChange={(e) => setFps(+e.target.value)}>
-                <option value={24}>24 fps</option>
-                <option value={30}>30 fps</option>
-              </select>
-            </span>
-          </label>
+      <aside className="side">
+        <div className="panel export">
+          <h2 className="panel__h">Export</h2>
+
+          <div className="ctrl-row">
+            <label className="ctrl">
+              <span className="ctrl__label">Aspect</span>
+              <span className="selectwrap">
+                <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
+                  <option value="16:9">16:9 — 1920×1080</option>
+                  <option value="9:16">9:16 — 1080×1920</option>
+                  <option value="auto">Auto — match</option>
+                </select>
+              </span>
+            </label>
+            <label className="ctrl">
+              <span className="ctrl__label">FPS</span>
+              <span className="selectwrap">
+                <select value={fps} onChange={(e) => setFps(+e.target.value)}>
+                  <option value={24}>24 fps</option>
+                  <option value={30}>30 fps</option>
+                </select>
+              </span>
+            </label>
+          </div>
 
           <dl className="specs">
             <div className="spec"><dt>Resolution</dt><dd>{dims.width}×{dims.height}</dd></div>
@@ -218,8 +244,7 @@ export default function Editor({
 
           {gapCount > 0 && (
             <div className="note note--gap">
-              {gapCount} empty {gapCount === 1 ? "gap" : "gaps"} — these render black.
-              Use the <b>+</b> on the timeline to fill them.
+              {gapCount} empty {gapCount === 1 ? "gap" : "gaps"} render black — fill with the <b>+</b>.
             </div>
           )}
 
@@ -229,35 +254,31 @@ export default function Editor({
           {busy && <div className="progress"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}
-
-          <p className="export__hint">Renders in your browser with ffmpeg — nothing is uploaded.</p>
-        </aside>
-      </div>
-
-      <div className="transitions">
-        <div className="transitions__head">
-          <span className="transitions__title">Transitions</span>
-          <span className="transitions__target">
-            {selectedIndex > 0
-              ? `Cut before image ${imageClips.indexOf(selectedClip) + 1 || "—"} · ${tc(selectedClip.start)}`
-              : "Pick a cut ◇ on the timeline, or apply one to all"}
-          </span>
         </div>
 
-        <div className="transitions__chips">
-          {TRANSITION_LIST.map((tr) => (
-            <button
-              key={tr.id}
-              type="button"
-              className={`trchip ${currentType === tr.id ? "is-on" : ""}`}
-              onClick={() => pickType(tr.id)}
-            >
-              <span className="trchip__icon">{tr.icon}</span>{tr.label}
-            </button>
-          ))}
-        </div>
+        <div className="panel transitions">
+          <div className="transitions__head">
+            <span className="panel__h">Transitions</span>
+            <span className="transitions__target">
+              {selectedIndex > 0
+                ? `Cut → image ${imageClips.indexOf(selectedClip) + 1 || "—"} · ${tc(selectedClip.start)}`
+                : "Pick a cut ◇ on the timeline"}
+            </span>
+          </div>
 
-        <div className="transitions__foot">
+          <div className="transitions__chips">
+            {TRANSITION_LIST.map((tr) => (
+              <button
+                key={tr.id}
+                type="button"
+                className={`trchip ${currentType === tr.id ? "is-on" : ""}`}
+                onClick={() => pickType(tr.id)}
+              >
+                <span className="trchip__icon">{tr.icon}</span>{tr.label}
+              </button>
+            ))}
+          </div>
+
           <label className="trdur">
             <span>Duration</span>
             <input
@@ -274,30 +295,7 @@ export default function Editor({
             Apply “{transitionOf(currentType).label}” to all cuts
           </button>
         </div>
-      </div>
-
-      {warnings.length > 0 && (
-        <div className="notes">
-          {warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
-        </div>
-      )}
-
-      <Timeline
-        clips={clips}
-        imageEls={imageEls}
-        duration={duration}
-        time={time}
-        peaks={peaks}
-        activeName={active && active.name}
-        badClips={badClips}
-        transitionsByName={transitionsByName}
-        selectedCut={selectedCut}
-        onSelectCut={selectCut}
-        onSeek={seek}
-        onReplace={askReplace}
-        onRemove={removeImage}
-        onAdd={askAdd}
-      />
+      </aside>
 
       <input
         ref={fileInputRef} type="file" accept="image/*" hidden

@@ -191,6 +191,7 @@ export default function Home() {
         </div>
       </header>
 
+      <div className="content">
       {!ready ? (
         <section className="onboard">
           <h1 className="onboard__h">Sync your images to a voiceover, automatically.</h1>
@@ -241,6 +242,7 @@ export default function Home() {
           setTransitionDuration={setTransitionDuration}
         />
       )}
+      </div>
     </main>
   );
 }
