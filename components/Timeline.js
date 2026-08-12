@@ -24,7 +24,7 @@ function Waveform({ peaks }) {
 // waveform, playhead and click-to-seek all share the track's coordinate space.
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
-  onSeek, onReplace, onRemove,
+  onSeek, onReplace, onRemove, onAdd,
 }) {
   const trackRef = useRef(null);
 
@@ -77,6 +77,27 @@ export default function Timeline({
         <div className="tl__track" ref={trackRef} onPointerDown={onPointerDown}>
           <div className="tl__lane tl__lane--video">
             {clips.map((c) => {
+              const style = { left: pct(c.start), width: pct(c.duration) };
+
+              if (c.gap) {
+                return (
+                  <div
+                    key={c.name}
+                    className="clip clip--gap"
+                    style={style}
+                    title={`Empty · ${label(c.start)} · ${c.duration.toFixed(1)}s`}
+                  >
+                    <button
+                      type="button" className="clip__add" title="Add an image here"
+                      onPointerDown={stop} onClick={() => onAdd && onAdd(c.name)}
+                    >
+                      <span className="clip__plus">+</span>
+                      <span className="clip__meta clip__meta--gap">{c.duration.toFixed(1)}s</span>
+                    </button>
+                  </div>
+                );
+              }
+
               const el = imageEls[c.name];
               const cls = ["clip"];
               if (c.name === activeName) cls.push("is-active");
@@ -85,12 +106,8 @@ export default function Timeline({
                 <div
                   key={c.name}
                   className={cls.join(" ")}
-                  style={{
-                    left: pct(c.start),
-                    width: pct(c.duration),
-                    backgroundImage: el && el.url ? `url(${el.url})` : undefined,
-                  }}
-                  title={`${c.name} · ${label(c.start)} · ${c.duration.toFixed(1)}s`}
+                  style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
+                  title={`${label(c.start)} · ${c.duration.toFixed(1)}s`}
                 >
                   <span className="clip__meta">{c.duration.toFixed(1)}s</span>
                   <div className="clip__actions">

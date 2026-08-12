@@ -14,28 +14,36 @@ export default function Editor({
   clips, imageEls, audioUrl, duration, peaks, dims,
   aspect, setAspect, fps, setFps,
   onRender, busy, progress, outUrl, error, warnings,
-  replaceImage, removeImage,
+  replaceImage, removeImage, fillGap,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
   const rafRef = useRef(0);
-  const replaceInputRef = useRef(null);
-  const pendingName = useRef(null);
+  const fileInputRef = useRef(null);
+  const pending = useRef(null); // { mode: "replace" | "add", name }
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
 
   const askReplace = useCallback((name) => {
-    pendingName.current = name;
-    if (replaceInputRef.current) replaceInputRef.current.click();
+    pending.current = { mode: "replace", name };
+    if (fileInputRef.current) fileInputRef.current.click();
   }, []);
 
-  const onReplaceFile = useCallback((e) => {
+  const askAdd = useCallback((name) => {
+    pending.current = { mode: "add", name };
+    if (fileInputRef.current) fileInputRef.current.click();
+  }, []);
+
+  const onPickFile = useCallback((e) => {
     const file = e.target.files && e.target.files[0];
-    const name = pendingName.current;
-    if (file && name && replaceImage) replaceImage(name, file);
+    const p = pending.current;
+    if (file && p) {
+      if (p.mode === "replace" && replaceImage) replaceImage(p.name, file);
+      else if (p.mode === "add" && fillGap) fillGap(p.name, file);
+    }
     e.target.value = "";
-    pendingName.current = null;
-  }, [replaceImage]);
+    pending.current = null;
+  }, [replaceImage, fillGap]);
 
   const draw = useCallback((t) => {
     const canvas = canvasRef.current;
@@ -105,6 +113,10 @@ export default function Editor({
     () => new Set(clips.filter((c) => c.duration <= 0.0001).map((c) => c.name)),
     [clips]
   );
+  const imageClips = useMemo(() => clips.filter((c) => !c.gap), [clips]);
+  const imageCount = imageClips.length;
+  const gapCount = clips.length - imageCount;
+  const activeIndex = active && !active.gap ? imageClips.indexOf(active) + 1 : 0;
 
   return (
     <section className="editor">
@@ -124,7 +136,12 @@ export default function Editor({
               <span className="time__total">{tc(duration)}</span>
             </div>
             <div className="transport__spacer" />
-            {active && <div className="nowclip"><span className="nowclip__k">now</span> {active.name}</div>}
+            {active && (
+              <div className="nowclip">
+                <span className="nowclip__k">now</span>
+                {active.gap ? "empty gap" : `image ${activeIndex} / ${imageCount}`}
+              </div>
+            )}
           </div>
 
           <audio ref={audioRef} src={audioUrl} hidden />
@@ -156,9 +173,16 @@ export default function Editor({
 
           <dl className="specs">
             <div className="spec"><dt>Resolution</dt><dd>{dims.width}×{dims.height}</dd></div>
-            <div className="spec"><dt>Clips</dt><dd>{clips.length}</dd></div>
+            <div className="spec"><dt>Images</dt><dd>{imageCount}</dd></div>
             <div className="spec"><dt>Length</dt><dd>{tc(duration)}</dd></div>
           </dl>
+
+          {gapCount > 0 && (
+            <div className="note note--gap">
+              {gapCount} empty {gapCount === 1 ? "gap" : "gaps"} — these render black.
+              Use the <b>+</b> on the timeline to fill them.
+            </div>
+          )}
 
           <button className="render" onClick={onRender} disabled={busy}>
             {busy ? `Rendering… ${Math.round(progress * 100)}%` : "Render MP4"}
@@ -188,11 +212,12 @@ export default function Editor({
         onSeek={seek}
         onReplace={askReplace}
         onRemove={removeImage}
+        onAdd={askAdd}
       />
 
       <input
-        ref={replaceInputRef} type="file" accept="image/*" hidden
-        onChange={onReplaceFile}
+        ref={fileInputRef} type="file" accept="image/*" hidden
+        onChange={onPickFile}
       />
     </section>
   );

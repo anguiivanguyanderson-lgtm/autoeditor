@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import "./globals.css";
 import { parseTimestampName } from "../lib/timestamp";
-import { buildTimeline } from "../lib/timeline";
+import { buildTimeline, LEAD_IN } from "../lib/timeline";
 import { resolveDimensions } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
@@ -19,19 +19,26 @@ function loadImageEl(file) {
   });
 }
 
+function revoke(slot) {
+  if (slot && slot.img && slot.img.url) URL.revokeObjectURL(slot.img.url);
+}
+
+// A slot is one point on the timeline: { id, seconds, file, img, empty }.
+// Empty slots are placeholders (a removed image or the lead-in you filled out).
 export default function Home() {
   const [audioFile, setAudioFile] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const [audioDuration, setAudioDuration] = useState(0);
   const [peaks, setPeaks] = useState([]);
-  const [imagesByName, setImagesByName] = useState({}); // name -> File
-  const [imageEls, setImageEls] = useState({});         // name -> HTMLImageElement (with .url)
+  const [slots, setSlots] = useState([]);
   const [aspect, setAspect] = useState("16:9");
   const [fps, setFps] = useState(30);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [outUrl, setOutUrl] = useState(null);
   const [error, setError] = useState(null);
+  const idRef = useRef(0);
+  const nextId = () => `s${idRef.current++}`;
 
   const onAudio = useCallback(async (files) => {
     const file = files[0];
@@ -46,56 +53,83 @@ export default function Home() {
     } catch (e) { setError(e.message); }
   }, []);
 
-  // Merge imported images into the existing set (same filename overwrites).
+  // Import images, merged by timestamp: a file whose timestamp matches an
+  // existing slot fills/replaces it; otherwise it becomes a new slot.
   const addImages = useCallback(async (fileList) => {
     const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
     if (!files.length) return;
-    const loaded = await Promise.all(files.map(async (f) => [f.name, f, await loadImageEl(f)]));
-    setImagesByName((prev) => {
-      const next = { ...prev };
-      for (const [name, file] of loaded) next[name] = file;
-      return next;
-    });
-    setImageEls((prev) => {
-      const next = { ...prev };
-      for (const [name, , img] of loaded) {
-        if (next[name] && next[name].url) URL.revokeObjectURL(next[name].url);
-        next[name] = img;
+    const loaded = await Promise.all(
+      files.map(async (f) => ({ file: f, seconds: parseTimestampName(f.name), img: await loadImageEl(f) }))
+    );
+    setSlots((prev) => {
+      const next = prev.map((s) => ({ ...s }));
+      for (const { file, seconds, img } of loaded) {
+        const slot = seconds != null ? next.find((s) => s.seconds === seconds) : null;
+        if (slot) {
+          revoke(slot);
+          slot.file = file; slot.img = img; slot.empty = false;
+        } else {
+          next.push({ id: nextId(), seconds, file, img, empty: false });
+        }
       }
       return next;
     });
   }, []);
 
-  // Swap the image for one timeline slot, keeping the original name (timestamp).
-  const replaceImage = useCallback(async (name, file) => {
+  // Swap the image in one slot, keeping its timestamp.
+  const replaceImage = useCallback(async (id, file) => {
     if (!file || !file.type.startsWith("image/")) return;
     const img = await loadImageEl(file);
-    setImagesByName((prev) => ({ ...prev, [name]: file }));
-    setImageEls((prev) => {
-      if (prev[name] && prev[name].url) URL.revokeObjectURL(prev[name].url);
-      return { ...prev, [name]: img };
-    });
+    setSlots((prev) => prev.map((s) => {
+      if (s.id !== id) return s;
+      revoke(s);
+      return { ...s, file, img, empty: false };
+    }));
   }, []);
 
-  const removeImage = useCallback((name) => {
-    setImagesByName((prev) => { const n = { ...prev }; delete n[name]; return n; });
-    setImageEls((prev) => {
-      if (prev[name] && prev[name].url) URL.revokeObjectURL(prev[name].url);
-      const n = { ...prev }; delete n[name]; return n;
-    });
+  // Removing an image turns its slot into a placeholder — neighbours don't move.
+  const removeImage = useCallback((id) => {
+    setSlots((prev) => prev.map((s) => {
+      if (s.id !== id) return s;
+      revoke(s);
+      return { ...s, file: null, img: null, empty: true };
+    }));
+  }, []);
+
+  // Fill a gap. LEAD_IN adds a new slot at 0; otherwise fill the empty slot.
+  const fillGap = useCallback(async (name, file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const img = await loadImageEl(file);
+    if (name === LEAD_IN) {
+      setSlots((prev) => [...prev, { id: nextId(), seconds: 0, file, img, empty: false }]);
+    } else {
+      setSlots((prev) => prev.map((s) => (s.id === name ? { ...s, file, img, empty: false } : s)));
+    }
   }, []);
 
   const items = useMemo(
-    () => Object.keys(imagesByName).map((name) => ({ name, seconds: parseTimestampName(name) })),
-    [imagesByName]
+    () => slots.map((s) => ({ name: s.id, seconds: s.seconds, empty: s.empty })),
+    [slots]
   );
-  const imageCount = items.length;
+  const imagesByName = useMemo(() => {
+    const m = {};
+    for (const s of slots) if (!s.empty && s.file) m[s.id] = s.file;
+    return m;
+  }, [slots]);
+  const imageEls = useMemo(() => {
+    const m = {};
+    for (const s of slots) if (!s.empty && s.img) m[s.id] = s.img;
+    return m;
+  }, [slots]);
+  const imageCount = useMemo(() => slots.filter((s) => !s.empty && s.img).length, [slots]);
 
   const sample = useMemo(() => {
-    const first = items.find((i) => imageEls[i.name]);
-    const el = first && imageEls[first.name];
+    const imaged = slots
+      .filter((s) => !s.empty && s.img && s.seconds != null)
+      .sort((a, b) => a.seconds - b.seconds);
+    const el = imaged[0] && imaged[0].img;
     return el ? { width: el.naturalWidth, height: el.naturalHeight } : null;
-  }, [items, imageEls]);
+  }, [slots]);
 
   const dims = useMemo(() => resolveDimensions(aspect, sample), [aspect, sample]);
   const { clips, warnings } = useMemo(
@@ -166,7 +200,7 @@ export default function Home() {
             />
           </div>
 
-          {imageCount > 0 && warnings.length > 0 && (
+          {audioFile && imageCount > 0 && warnings.length > 0 && (
             <div className="notes">{warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}</div>
           )}
           {error && <div className="note note--bad">{error}</div>}
@@ -184,7 +218,7 @@ export default function Home() {
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           onRender={onRender} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
-          replaceImage={replaceImage} removeImage={removeImage} addImages={addImages}
+          replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}
         />
       )}
     </main>

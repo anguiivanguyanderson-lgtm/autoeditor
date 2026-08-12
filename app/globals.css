@@ -252,6 +252,21 @@ body {
 .clip__btn:hover { background: rgba(6,8,11,.96); }
 .clip__btn--x:hover { background: var(--bad); color: #200; }
 
+/* Empty gap placeholder */
+.clip--gap { background-color: var(--bg); box-shadow: none; }
+.clip__add {
+  position: absolute; inset: 2px; width: calc(100% - 4px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: transparent; border: 1.5px dashed var(--line); border-radius: 6px;
+  cursor: pointer; color: var(--muted);
+}
+.clip__add:hover { color: var(--accent); background: rgba(91,124,250,.06); }
+.clip__plus { font-size: 18px; line-height: 1; font-weight: 400; }
+.clip__meta--gap { position: static; background: transparent; padding: 0; color: inherit; opacity: .8; }
+
+.note--gap { color: #cfd6e2; background: rgba(255,255,255,.03); border-color: var(--line); }
+.note--gap b { color: var(--accent); }
+
 .wave { position: absolute; inset: 0; width: 100%; height: 100%; }
 .wave rect { fill: var(--teal); opacity: .8; }
 .wave--empty { position: absolute; inset: 0; background: rgba(52,208,186,.08); }
