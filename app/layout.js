@@ -1,6 +1,6 @@
 export const metadata = {
-  title: "Story → Video Assembler",
-  description: "Assemble an MP4 from timestamp-named images and one voiceover.",
+  title: "AutoReel — image · voiceover sync",
+  description: "Sync timestamp-named images to a voiceover and export an MP4, entirely in your browser.",
 };
 
 export default function RootLayout({ children }) {

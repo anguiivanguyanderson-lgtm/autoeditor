@@ -119,19 +119,23 @@ export default function Editor({
 
           <label className="ctrl">
             <span className="ctrl__label">Aspect ratio</span>
-            <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
-              <option value="16:9">16:9 — 1920×1080</option>
-              <option value="9:16">9:16 — 1080×1920</option>
-              <option value="auto">Auto — match images</option>
-            </select>
+            <span className="selectwrap">
+              <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
+                <option value="16:9">16:9 — 1920×1080</option>
+                <option value="9:16">9:16 — 1080×1920</option>
+                <option value="auto">Auto — match images</option>
+              </select>
+            </span>
           </label>
 
           <label className="ctrl">
             <span className="ctrl__label">Frame rate</span>
-            <select value={fps} onChange={(e) => setFps(+e.target.value)}>
-              <option value={24}>24 fps</option>
-              <option value={30}>30 fps</option>
-            </select>
+            <span className="selectwrap">
+              <select value={fps} onChange={(e) => setFps(+e.target.value)}>
+                <option value={24}>24 fps</option>
+                <option value={30}>30 fps</option>
+              </select>
+            </span>
           </label>
 
           <dl className="specs">

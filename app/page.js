@@ -91,8 +91,8 @@ export default function Home() {
       <header className="bar">
         <div className="brand">
           <span className="brand__dot" />
-          <span className="brand__name">Story<span className="brand__arrow">→</span>Video</span>
-          <span className="brand__tag">Assembler</span>
+          <span className="brand__name">AutoReel</span>
+          <span className="brand__tag">image · voiceover sync</span>
         </div>
         <div className="bar__io">
           <Dropzone
@@ -110,14 +110,11 @@ export default function Home() {
 
       {!ready ? (
         <section className="onboard">
-          <h1 className="onboard__h">
-            Timestamp-named images plus one voiceover,<br />
-            assembled into a perfectly synced MP4.
-          </h1>
+          <h1 className="onboard__h">Sync your images to a voiceover, automatically.</h1>
           <p className="onboard__p">
-            Every image filename is the second it appears — <code>0-03.png</code> cuts in at 0:03.
-            Drop your files, scrub the timeline to check each cut, then render.
-            It all runs in your browser; nothing is uploaded.
+            Name each image with the second it appears — <code>0-03.png</code> cuts in at 0:03 —
+            then drop it in with your voiceover. AutoReel builds the timeline for you.
+            Everything runs in your browser; nothing is uploaded.
           </p>
 
           <div className="onboard__zones">
@@ -137,7 +134,7 @@ export default function Home() {
             />
           </div>
 
-          {warnings.length > 0 && (
+          {items.length > 0 && warnings.length > 0 && (
             <div className="notes">{warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}</div>
           )}
           {error && <div className="note note--bad">{error}</div>}
