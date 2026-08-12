@@ -6,6 +6,13 @@ import {
   MIN_TRANSITION_DURATION, MAX_TRANSITION_DURATION,
 } from "../lib/transitions";
 
+const MOTIONS = [
+  { id: "none", label: "None", icon: "▮" },
+  { id: "zoomin", label: "Zoom in", icon: "⤢" },
+  { id: "zoomout", label: "Zoom out", icon: "⤡" },
+  { id: "alternate", label: "Alternate", icon: "⇄" },
+];
+
 function tc(t) {
   if (!isFinite(t) || t < 0) t = 0;
   const m = Math.floor(t / 60);
@@ -20,6 +27,7 @@ export default function Editor({
   onRender, busy, progress, outUrl, error, warnings,
   replaceImage, removeImage, fillGap,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
+  motion, setMotion, motionAmount, setMotionAmount, fadeIn, setFadeIn, fadeOut, setFadeOut,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
@@ -60,32 +68,49 @@ export default function Editor({
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
-    if (!clips.length) return;
 
-    let idx = clips.findIndex((c) => t >= c.start && t < c.start + c.duration);
-    if (idx === -1) idx = clips.length - 1;
-    const clip = clips[idx];
+    if (clips.length) {
+      let idx = clips.findIndex((c) => t >= c.start && t < c.start + c.duration);
+      if (idx === -1) idx = clips.length - 1;
+      const clip = clips[idx];
+      const type = idx > 0 ? (transitionsByName[clip.name] || "cut") : "cut";
+      const tdur = type === "cut" ? 0 : Math.min(transitionDuration, clip.duration);
 
-    const type = idx > 0 ? (transitionsByName[clip.name] || "cut") : "cut";
-    const tdur = type === "cut" ? 0 : Math.min(transitionDuration, clip.duration);
-
-    if (idx > 0 && tdur > 0 && t < clip.start + tdur) {
-      // Inside a transition: blend the previous image into this one.
-      const p = Math.min(1, Math.max(0, (t - clip.start) / tdur));
-      const fromImg = imageEls[clips[idx - 1].name] || null;
-      const toImg = imageEls[clip.name] || null;
-      transitionOf(type).canvas(ctx, fromImg, toImg, p, W, H);
-      ctx.globalAlpha = 1;
-      return;
+      if (idx > 0 && tdur > 0 && t < clip.start + tdur) {
+        // Inside a transition: blend the previous image into this one.
+        const p = Math.min(1, Math.max(0, (t - clip.start) / tdur));
+        transitionOf(type).canvas(ctx, imageEls[clips[idx - 1].name] || null, imageEls[clip.name] || null, p, W, H);
+        ctx.globalAlpha = 1;
+      } else {
+        const img = imageEls[clip.name];
+        if (img) {
+          // Ken Burns zoom (skips gaps).
+          let s = 1;
+          if (motion !== "none" && !clip.gap) {
+            let imgIndex = 0;
+            for (let j = 0; j < idx; j++) if (!clips[j].gap) imgIndex++;
+            const mt = motion === "alternate" ? (imgIndex % 2 === 0 ? "zoomin" : "zoomout") : motion;
+            const lp = clip.duration > 0 ? (t - clip.start) / clip.duration : 0;
+            s = mt === "zoomout" ? 1 + motionAmount * (1 - lp) : 1 + motionAmount * lp;
+          }
+          const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight) * s;
+          const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
+          ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+        }
+      }
     }
 
-    const img = imageEls[clip.name];
-    if (!img) return;
-    const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
-    const w = img.naturalWidth * scale;
-    const h = img.naturalHeight * scale;
-    ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
-  }, [clips, imageEls, transitionsByName, transitionDuration]);
+    // Scene fades (opening / ending).
+    if (fadeIn > 0 && t < fadeIn) {
+      ctx.globalAlpha = Math.max(0, 1 - t / fadeIn);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    }
+    const outStart = duration - fadeOut;
+    if (fadeOut > 0 && t > outStart) {
+      ctx.globalAlpha = Math.min(1, (t - outStart) / fadeOut);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    }
+  }, [clips, imageEls, transitionsByName, transitionDuration, motion, motionAmount, fadeIn, fadeOut, duration]);
 
   useEffect(() => { draw(time); }, [time, draw]);
   useEffect(() => { setTime(0); }, [audioUrl]);
@@ -254,6 +279,46 @@ export default function Editor({
           {busy && <div className="progress"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}
+        </div>
+
+        <div className="panel">
+          <h2 className="panel__h">Motion &amp; fades</h2>
+
+          <div className="mini-h">Zoom — all images</div>
+          <div className="transitions__chips">
+            {MOTIONS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={`trchip ${motion === m.id ? "is-on" : ""}`}
+                onClick={() => setMotion(m.id)}
+              >
+                <span className="trchip__icon">{m.icon}</span>{m.label}
+              </button>
+            ))}
+          </div>
+          {motion !== "none" && (
+            <label className="trdur">
+              <span>Amount</span>
+              <input
+                type="range" min={0.02} max={0.2} step={0.01}
+                value={motionAmount} onChange={(e) => setMotionAmount(+e.target.value)}
+              />
+              <span className="trdur__val">{Math.round(motionAmount * 100)}%</span>
+            </label>
+          )}
+
+          <div className="mini-h mini-h--sep">Scene fades — opening &amp; ending</div>
+          <label className="trdur">
+            <span>Fade in</span>
+            <input type="range" min={0} max={2} step={0.1} value={fadeIn} onChange={(e) => setFadeIn(+e.target.value)} />
+            <span className="trdur__val">{fadeIn > 0 ? `${fadeIn.toFixed(1)}s` : "off"}</span>
+          </label>
+          <label className="trdur">
+            <span>Fade out</span>
+            <input type="range" min={0} max={2} step={0.1} value={fadeOut} onChange={(e) => setFadeOut(+e.target.value)} />
+            <span className="trdur__val">{fadeOut > 0 ? `${fadeOut.toFixed(1)}s` : "off"}</span>
+          </label>
         </div>
 
         <div className="panel transitions">

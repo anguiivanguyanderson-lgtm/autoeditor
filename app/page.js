@@ -36,6 +36,10 @@ export default function Home() {
   const [fps, setFps] = useState(30);
   const [transitionsByName, setTransitionsByName] = useState({}); // clip name -> transition id
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
+  const [motion, setMotion] = useState("none");       // none | zoomin | zoomout | alternate
+  const [motionAmount, setMotionAmount] = useState(0.08);
+  const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
+  const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [outUrl, setOutUrl] = useState(null);
@@ -162,12 +166,13 @@ export default function Home() {
         clips, imagesByName, audioFile,
         width: dims.width, height: dims.height, fps,
         transitions, transitionDuration,
+        motion, motionAmount, fadeIn, fadeOut,
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
     } catch (e) { setError(e.message || String(e)); }
     finally { setBusy(false); }
-  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration]);
+  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, motion, motionAmount, fadeIn, fadeOut]);
 
   return (
     <main className="app">
@@ -240,6 +245,10 @@ export default function Home() {
           transitionsByName={transitionsByName} transitionDuration={transitionDuration}
           setTransition={setTransition} applyTransitionAll={applyTransitionAll}
           setTransitionDuration={setTransitionDuration}
+          motion={motion} setMotion={setMotion}
+          motionAmount={motionAmount} setMotionAmount={setMotionAmount}
+          fadeIn={fadeIn} setFadeIn={setFadeIn}
+          fadeOut={fadeOut} setFadeOut={setFadeOut}
         />
       )}
       </div>
