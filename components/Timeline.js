@@ -1,0 +1,101 @@
+"use client";
+import { useCallback, useRef } from "react";
+
+function label(t) {
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function Waveform({ peaks }) {
+  if (!peaks || !peaks.length) return <div className="wave wave--empty" />;
+  const n = peaks.length;
+  return (
+    <svg className="wave" viewBox={`0 0 ${n} 100`} preserveAspectRatio="none" aria-hidden="true">
+      {peaks.map((p, i) => {
+        const h = Math.max(1.5, p * 92);
+        return <rect key={i} x={i + 0.12} y={(100 - h) / 2} width={0.76} height={h} rx={0.3} />;
+      })}
+    </svg>
+  );
+}
+
+// The signature element: a scrubbable two-lane track. Clip widths are
+// proportional to their on-screen duration, so timing is visible at a glance.
+export default function Timeline({ clips, imageEls, duration, time, peaks, activeName, badClips, onSeek }) {
+  const lanesRef = useRef(null);
+
+  const seekAt = useCallback((clientX) => {
+    const el = lanesRef.current;
+    if (!el || !duration) return;
+    const r = el.getBoundingClientRect();
+    const x = Math.min(Math.max(clientX - r.left, 0), r.width);
+    onSeek((x / r.width) * duration);
+  }, [duration, onSeek]);
+
+  const onPointerDown = useCallback((e) => {
+    seekAt(e.clientX);
+    const move = (ev) => seekAt(ev.clientX);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }, [seekAt]);
+
+  const step = duration > 180 ? 30 : duration > 90 ? 15 : duration > 30 ? 10 : 5;
+  const ticks = [];
+  for (let t = 0; t <= duration + 0.001; t += step) ticks.push(Math.round(t));
+
+  const pct = (v) => `${Math.min(100, (v / duration) * 100)}%`;
+
+  return (
+    <div className="tl">
+      <div className="tl__ruler">
+        {ticks.map((t) => (
+          <span className="tl__tick" key={t} style={{ left: pct(t) }}>
+            <i className="tl__tickline" />
+            {label(t)}
+          </span>
+        ))}
+      </div>
+
+      <div className="tl__lanes" ref={lanesRef} onPointerDown={onPointerDown}>
+        <div className="tl__lane tl__lane--video">
+          <span className="tl__tag">V</span>
+          {clips.map((c) => {
+            const el = imageEls[c.name];
+            const bad = badClips && badClips.has(c.name);
+            const cls = ["clip"];
+            if (c.name === activeName) cls.push("is-active");
+            if (bad) cls.push("is-bad");
+            return (
+              <div
+                key={c.name}
+                className={cls.join(" ")}
+                style={{
+                  left: pct(c.start),
+                  width: pct(c.duration),
+                  backgroundImage: el && el.url ? `url(${el.url})` : undefined,
+                }}
+                title={`${c.name} · ${label(c.start)} · ${c.duration.toFixed(1)}s`}
+              >
+                <span className="clip__meta">{c.duration.toFixed(1)}s</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="tl__lane tl__lane--audio">
+          <span className="tl__tag">A</span>
+          <Waveform peaks={peaks} />
+        </div>
+
+        <div className="tl__playhead" style={{ left: pct(time) }}>
+          <span className="tl__playhead-grip" />
+        </div>
+      </div>
+    </div>
+  );
+}

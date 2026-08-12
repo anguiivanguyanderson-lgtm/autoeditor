@@ -5,8 +5,10 @@ import { parseTimestampName } from "../lib/timestamp";
 import { buildTimeline } from "../lib/timeline";
 import { resolveDimensions } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
+import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo } from "../lib/ffmpegRender";
-import PreviewPlayer from "../components/PreviewPlayer";
+import Dropzone from "../components/Dropzone";
+import Editor from "../components/Editor";
 
 function loadImageEl(file) {
   return new Promise((resolve) => {
@@ -21,6 +23,7 @@ export default function Home() {
   const [audioFile, setAudioFile] = useState(null);
   const [audioUrl, setAudioUrl] = useState(null);
   const [audioDuration, setAudioDuration] = useState(0);
+  const [peaks, setPeaks] = useState([]);
   const [imagesByName, setImagesByName] = useState({});
   const [imageEls, setImageEls] = useState({});
   const [items, setItems] = useState([]);
@@ -31,7 +34,8 @@ export default function Home() {
   const [outUrl, setOutUrl] = useState(null);
   const [error, setError] = useState(null);
 
-  const onAudio = useCallback(async (file) => {
+  const onAudio = useCallback(async (files) => {
+    const file = files[0];
     if (!file) return;
     setError(null);
     try {
@@ -39,6 +43,7 @@ export default function Home() {
       setAudioFile(file);
       setAudioUrl(URL.createObjectURL(file));
       setAudioDuration(d);
+      getWaveformPeaks(file).then(setPeaks);
     } catch (e) { setError(e.message); }
   }, []);
 
@@ -82,60 +87,75 @@ export default function Home() {
   }, [clips, imagesByName, audioFile, dims, fps]);
 
   return (
-    <main className="wrap">
-      <h1>Story → Video Assembler</h1>
-      <p className="sub">Upload one voiceover + timestamp-named images → download an MP4.</p>
-
-      <div className="card">
-        <div className="row">
-          <label className="drop" style={{ flex: 1 }}>
-            {audioFile ? `Audio: ${audioFile.name} (${audioDuration.toFixed(1)}s)` : "Choose voiceover audio"}
-            <input type="file" accept="audio/*" hidden onChange={(e) => onAudio(e.target.files[0])} />
-          </label>
-          <label className="drop" style={{ flex: 1 }}>
-            {items.length ? `${items.length} images loaded` : "Choose timestamp-named images"}
-            <input type="file" accept="image/*" multiple hidden onChange={(e) => onImages(e.target.files)} />
-          </label>
+    <main className="app">
+      <header className="bar">
+        <div className="brand">
+          <span className="brand__dot" />
+          <span className="brand__name">Story<span className="brand__arrow">→</span>Video</span>
+          <span className="brand__tag">Assembler</span>
         </div>
-
-        <div className="row" style={{ marginTop: 16 }}>
-          <label className="field">Aspect
-            <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
-              <option value="16:9">16:9 (1920×1080)</option>
-              <option value="9:16">9:16 (1080×1920)</option>
-              <option value="auto">Auto (match images)</option>
-            </select>
-          </label>
-          <label className="field">FPS
-            <select value={fps} onChange={(e) => setFps(+e.target.value)}>
-              <option value={24}>24</option>
-              <option value={30}>30</option>
-            </select>
-          </label>
-          <span className="field">Output: {dims.width}×{dims.height}</span>
-        </div>
-
-        {warnings.map((w, i) => <div className="warn" key={i}>⚠ {w}</div>)}
-      </div>
-
-      {ready && (
-        <div className="card">
-          <PreviewPlayer
-            clips={clips}
-            imageEls={imageEls}
-            audioUrl={audioUrl}
-            width={dims.width}
-            height={dims.height}
+        <div className="bar__io">
+          <Dropzone
+            compact accept="audio/*" onFiles={onAudio} icon="♪"
+            title="Import voiceover" filled={!!audioFile}
+            filledLabel={audioFile ? audioFile.name : ""}
           />
-          <div className="row" style={{ marginTop: 16 }}>
-            <button className="primary" onClick={onRender} disabled={busy}>
-              {busy ? "Rendering…" : "Render MP4"}
-            </button>
-            {outUrl && <a className="dl" href={outUrl} download="story.mp4">Download MP4</a>}
-            {error && <span className="warn">Error: {error}</span>}
-          </div>
-          {busy && <div className="bar"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
+          <Dropzone
+            compact multiple accept="image/*" onFiles={onImages} icon="▦"
+            title="Import images" filled={items.length > 0}
+            filledLabel={items.length ? `${items.length} images` : ""}
+          />
         </div>
+      </header>
+
+      {!ready ? (
+        <section className="onboard">
+          <h1 className="onboard__h">
+            Timestamp-named images plus one voiceover,<br />
+            assembled into a perfectly synced MP4.
+          </h1>
+          <p className="onboard__p">
+            Every image filename is the second it appears — <code>0-03.png</code> cuts in at 0:03.
+            Drop your files, scrub the timeline to check each cut, then render.
+            It all runs in your browser; nothing is uploaded.
+          </p>
+
+          <div className="onboard__zones">
+            <Dropzone
+              accept="audio/*" onFiles={onAudio} icon="♪"
+              title="Voiceover audio"
+              hint="One MP3 or WAV — sets the total length"
+              filled={!!audioFile}
+              filledLabel={audioFile ? audioFile.name : ""}
+            />
+            <Dropzone
+              multiple accept="image/*" onFiles={onImages} icon="▦"
+              title="Storyboard images"
+              hint="Named by timestamp, e.g. 0-00, 0-06, 0-12"
+              filled={items.length > 0}
+              filledLabel={items.length ? `${items.length} images ready` : ""}
+            />
+          </div>
+
+          {warnings.length > 0 && (
+            <div className="notes">{warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}</div>
+          )}
+          {error && <div className="note note--bad">{error}</div>}
+
+          <ol className="steps">
+            <li><b>1</b> Drop a voiceover — it defines the timeline length.</li>
+            <li><b>2</b> Drop images named by their timestamp.</li>
+            <li><b>3</b> Scrub, check the cuts, and render your MP4.</li>
+          </ol>
+        </section>
+      ) : (
+        <Editor
+          clips={clips} imageEls={imageEls} audioUrl={audioUrl}
+          duration={audioDuration} peaks={peaks} dims={dims}
+          aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
+          onRender={onRender} busy={busy} progress={progress}
+          outUrl={outUrl} error={error} warnings={warnings}
+        />
       )}
     </main>
   );
