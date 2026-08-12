@@ -25,9 +25,10 @@ function Waveform({ peaks }) {
 // waveform, playhead and click-to-seek all share the track's coordinate space.
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
-  transitionsByName, selectedCut, onSelectCut,
+  transitionsByName, motionByName, selectedName, onSelect,
   onSeek, onReplace, onRemove, onAdd,
 }) {
+  const motionIcon = { zoomin: "⤢", zoomout: "⤡" };
   const trackRef = useRef(null);
 
   const seekAt = useCallback((clientX) => {
@@ -77,7 +78,7 @@ export default function Timeline({
             if (i === 0) return null;
             const tr = transitionOf(transitionsByName && transitionsByName[c.name]);
             const cls = ["cut"];
-            if (selectedCut === c.name) cls.push("is-sel");
+            if (selectedName === c.name) cls.push("is-sel");
             if (tr.xfade) cls.push("is-on");
             return (
               <button
@@ -87,7 +88,7 @@ export default function Timeline({
                 style={{ left: pct(c.start) }}
                 title={`Transition: ${tr.label} — click to change`}
                 onPointerDown={stop}
-                onClick={() => onSelectCut && onSelectCut(c.name)}
+                onClick={() => onSelect && onSelect(c.name)}
               >
                 {tr.icon}
               </button>
@@ -127,17 +128,21 @@ export default function Timeline({
               }
 
               const el = imageEls[c.name];
+              const mo = motionByName && motionByName[c.name];
               const cls = ["clip"];
               if (c.name === activeName) cls.push("is-active");
+              if (c.name === selectedName) cls.push("is-selected");
               if (badClips && badClips.has(c.name)) cls.push("is-bad");
               return (
                 <div
                   key={c.name}
                   className={cls.join(" ")}
                   style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
-                  title={`${label(c.start)} · ${c.duration.toFixed(1)}s`}
+                  title={`${label(c.start)} · ${c.duration.toFixed(1)}s — click to select`}
+                  onClick={() => onSelect && onSelect(c.name)}
                 >
                   <span className="clip__meta">{c.duration.toFixed(1)}s</span>
+                  {mo && motionIcon[mo] && <span className="clip__motion" title={`Zoom ${mo === "zoomin" ? "in" : "out"}`}>{motionIcon[mo]}</span>}
                   <div className="clip__actions">
                     <button
                       type="button" className="clip__btn" title="Replace this image"

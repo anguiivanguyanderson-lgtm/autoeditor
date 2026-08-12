@@ -36,7 +36,7 @@ export default function Home() {
   const [fps, setFps] = useState(30);
   const [transitionsByName, setTransitionsByName] = useState({}); // clip name -> transition id
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
-  const [motion, setMotion] = useState("none");       // none | zoomin | zoomout | alternate
+  const [motionByName, setMotionByName] = useState({}); // clip name -> zoomin | zoomout
   const [motionAmount, setMotionAmount] = useState(0.08);
   const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
@@ -126,6 +126,24 @@ export default function Home() {
     });
   }, []);
 
+  const setMotion = useCallback((name, type) => {
+    setMotionByName((prev) => ({ ...prev, [name]: type }));
+  }, []);
+  const applyMotionAll = useCallback((type, imageNames) => {
+    setMotionByName(() => {
+      const next = {};
+      for (const name of imageNames) next[name] = type;
+      return next;
+    });
+  }, []);
+  const applyMotionAlternate = useCallback((imageNames) => {
+    setMotionByName(() => {
+      const next = {};
+      imageNames.forEach((name, i) => { next[name] = i % 2 === 0 ? "zoomin" : "zoomout"; });
+      return next;
+    });
+  }, []);
+
   const items = useMemo(
     () => slots.map((s) => ({ name: s.id, seconds: s.seconds, empty: s.empty })),
     [slots]
@@ -162,17 +180,18 @@ export default function Home() {
     setBusy(true); setError(null); setOutUrl(null); setProgress(0);
     try {
       const transitions = clips.map((c) => transitionsByName[c.name] || "cut");
+      const motions = clips.map((c) => motionByName[c.name] || "none");
       const blob = await renderVideo({
         clips, imagesByName, audioFile,
         width: dims.width, height: dims.height, fps,
         transitions, transitionDuration,
-        motion, motionAmount, fadeIn, fadeOut,
+        motions, motionAmount, fadeIn, fadeOut,
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
     } catch (e) { setError(e.message || String(e)); }
     finally { setBusy(false); }
-  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, motion, motionAmount, fadeIn, fadeOut]);
+  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, motionByName, motionAmount, fadeIn, fadeOut]);
 
   return (
     <main className="app">
@@ -245,7 +264,8 @@ export default function Home() {
           transitionsByName={transitionsByName} transitionDuration={transitionDuration}
           setTransition={setTransition} applyTransitionAll={applyTransitionAll}
           setTransitionDuration={setTransitionDuration}
-          motion={motion} setMotion={setMotion}
+          motionByName={motionByName} setMotion={setMotion}
+          applyMotionAll={applyMotionAll} applyMotionAlternate={applyMotionAlternate}
           motionAmount={motionAmount} setMotionAmount={setMotionAmount}
           fadeIn={fadeIn} setFadeIn={setFadeIn}
           fadeOut={fadeOut} setFadeOut={setFadeOut}
