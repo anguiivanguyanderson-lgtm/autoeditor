@@ -6,12 +6,6 @@ import {
   MIN_TRANSITION_DURATION, MAX_TRANSITION_DURATION,
 } from "../lib/transitions";
 
-const MOTIONS = [
-  { id: "none", label: "None", icon: "▮" },
-  { id: "zoomin", label: "Zoom in", icon: "⤢" },
-  { id: "zoomout", label: "Zoom out", icon: "⤡" },
-];
-
 function tc(t) {
   if (!isFinite(t) || t < 0) t = 0;
   const m = Math.floor(t / 60);
@@ -33,7 +27,6 @@ export default function Editor({
   onRender, onCancel, busy, progress, outUrl, error, warnings,
   replaceImage, removeImage, fillGap,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
-  motionByName, setMotion, applyMotionAll, applyMotionAlternate, motionAmount, setMotionAmount,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
 }) {
   const canvasRef = useRef(null);
@@ -44,9 +37,8 @@ export default function Editor({
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0); // seconds spent in the current render
-  const [selectedCut, setSelectedCut] = useState(null); // selected clip name (drives transition + motion)
+  const [selectedCut, setSelectedCut] = useState(null); // selected clip name (drives transition)
   const [currentType, setCurrentType] = useState("fade");
-  const [currentMotion, setCurrentMotion] = useState("zoomin");
 
   const askReplace = useCallback((name) => {
     pending.current = { mode: "replace", name };
@@ -78,17 +70,6 @@ export default function Editor({
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
 
-    // Per-clip Ken Burns scale at time tt (gaps never zoom). Progress is clamped
-    // so an outgoing image keeps its end-of-clip zoom through the transition.
-    const scaleAt = (ci, tt) => {
-      const c = clips[ci];
-      if (!c || c.gap) return 1;
-      const m = motionByName[c.name] || "none";
-      if (m === "none") return 1;
-      const lp = c.duration > 0 ? Math.min(1, Math.max(0, (tt - c.start) / c.duration)) : 0;
-      return m === "zoomout" ? 1 + motionAmount * (1 - lp) : 1 + motionAmount * lp;
-    };
-
     if (clips.length) {
       let idx = clips.findIndex((c) => t >= c.start && t < c.start + c.duration);
       if (idx === -1) idx = clips.length - 1;
@@ -97,18 +78,16 @@ export default function Editor({
       const tdur = type === "cut" ? 0 : Math.min(transitionDuration, clip.duration);
 
       if (idx > 0 && tdur > 0 && t < clip.start + tdur) {
-        // Inside a transition: blend the previous image into this one, each at
-        // its own current zoom so nothing snaps back to normal size.
+        // Inside a transition: blend the previous image into this one.
         const p = Math.min(1, Math.max(0, (t - clip.start) / tdur));
         transitionOf(type).canvas(
-          ctx, imageEls[clips[idx - 1].name] || null, imageEls[clip.name] || null,
-          p, W, H, scaleAt(idx - 1, t), scaleAt(idx, t)
+          ctx, imageEls[clips[idx - 1].name] || null, imageEls[clip.name] || null, p, W, H
         );
         ctx.globalAlpha = 1;
       } else {
         const img = imageEls[clip.name];
         if (img) {
-          const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight) * scaleAt(idx, t);
+          const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
           const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
           ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
         }
@@ -125,7 +104,7 @@ export default function Editor({
       ctx.globalAlpha = Math.min(1, (t - outStart) / fadeOut);
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
-  }, [clips, imageEls, transitionsByName, transitionDuration, motionByName, motionAmount, fadeIn, fadeOut, duration]);
+  }, [clips, imageEls, transitionsByName, transitionDuration, fadeIn, fadeOut, duration]);
 
   useEffect(() => { draw(time); }, [time, draw]);
   useEffect(() => { setTime(0); }, [audioUrl]);
@@ -196,23 +175,16 @@ export default function Editor({
   const selectClip = useCallback((name) => {
     setSelectedCut(name);
     setCurrentType(transitionsByName[name] || "cut");
-    setCurrentMotion(motionByName[name] || "none");
-  }, [transitionsByName, motionByName]);
+  }, [transitionsByName]);
 
   const pickType = useCallback((type) => {
     setCurrentType(type);
     if (selectedCut) setTransition(selectedCut, type);
   }, [selectedCut, setTransition]);
 
-  const pickMotion = useCallback((type) => {
-    setCurrentMotion(type);
-    if (selectedCut) setMotion(selectedCut, type);
-  }, [selectedCut, setMotion]);
-
   const selectedClip = selectedCut && clips.find((c) => c.name === selectedCut);
   const selectedIndex = selectedClip ? clips.indexOf(selectedClip) : -1;
   const selectedImageNum = selectedClip && !selectedClip.gap ? imageClips.indexOf(selectedClip) + 1 : 0;
-  const imageNames = useMemo(() => imageClips.map((c) => c.name), [imageClips]);
 
   return (
     <section className="editor">
@@ -258,7 +230,6 @@ export default function Editor({
           activeName={active && active.name}
           badClips={badClips}
           transitionsByName={transitionsByName}
-          motionByName={motionByName}
           selectedName={selectedCut}
           onSelect={selectClip}
           onSeek={seek}
@@ -326,41 +297,8 @@ export default function Editor({
         </div>
 
         <div className="panel">
-          <h2 className="panel__h">Motion &amp; fades</h2>
-
-          <div className="mini-h">
-            {selectedImageNum ? `Zoom — image ${selectedImageNum}` : "Zoom — select an image on the timeline"}
-          </div>
-          <div className="transitions__chips">
-            {MOTIONS.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                className={`trchip ${currentMotion === m.id ? "is-on" : ""}`}
-                onClick={() => pickMotion(m.id)}
-              >
-                <span className="trchip__icon">{m.icon}</span>{m.label}
-              </button>
-            ))}
-          </div>
-          <label className="trdur">
-            <span>Amount</span>
-            <input
-              type="range" min={0.02} max={0.2} step={0.01}
-              value={motionAmount} onChange={(e) => setMotionAmount(+e.target.value)}
-            />
-            <span className="trdur__val">{Math.round(motionAmount * 100)}%</span>
-          </label>
-          <div className="btn-row">
-            <button type="button" className="trall" onClick={() => applyMotionAll(currentMotion, imageNames)}>
-              Apply to all
-            </button>
-            <button type="button" className="trall" onClick={() => applyMotionAlternate(imageNames)}>
-              Alternate
-            </button>
-          </div>
-
-          <div className="mini-h mini-h--sep">Scene fades — opening &amp; ending</div>
+          <h2 className="panel__h">Scene fades</h2>
+          <div className="mini-h">Fade the opening and ending (video &amp; audio).</div>
           <label className="trdur">
             <span>Fade in</span>
             <input type="range" min={0} max={2} step={0.1} value={fadeIn} onChange={(e) => setFadeIn(+e.target.value)} />

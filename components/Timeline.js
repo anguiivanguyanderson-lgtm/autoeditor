@@ -25,10 +25,9 @@ function Waveform({ peaks }) {
 // waveform, playhead and click-to-seek all share the track's coordinate space.
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
-  transitionsByName, motionByName, selectedName, onSelect,
+  transitionsByName, selectedName, onSelect,
   onSeek, onReplace, onRemove, onAdd,
 }) {
-  const motionIcon = { zoomin: "⤢", zoomout: "⤡" };
   const trackRef = useRef(null);
 
   const seekAt = useCallback((clientX) => {
@@ -128,7 +127,6 @@ export default function Timeline({
               }
 
               const el = imageEls[c.name];
-              const mo = motionByName && motionByName[c.name];
               const cls = ["clip"];
               if (c.name === activeName) cls.push("is-active");
               if (c.name === selectedName) cls.push("is-selected");
@@ -142,7 +140,6 @@ export default function Timeline({
                   onClick={() => onSelect && onSelect(c.name)}
                 >
                   <span className="clip__meta">{c.duration.toFixed(1)}s</span>
-                  {mo && motionIcon[mo] && <span className="clip__motion" title={`Zoom ${mo === "zoomin" ? "in" : "out"}`}>{motionIcon[mo]}</span>}
                   <div className="clip__actions">
                     <button
                       type="button" className="clip__btn" title="Replace this image"
