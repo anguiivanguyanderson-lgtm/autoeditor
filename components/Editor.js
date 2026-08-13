@@ -20,10 +20,17 @@ function tc(t) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${d}`;
 }
 
+function clock(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export default function Editor({
   clips, imageEls, audioUrl, duration, peaks, dims,
   aspect, setAspect, fps, setFps,
-  onRender, busy, progress, outUrl, error, warnings,
+  onRender, onCancel, busy, progress, outUrl, error, warnings,
   replaceImage, removeImage, fillGap,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
   motionByName, setMotion, applyMotionAll, applyMotionAlternate, motionAmount, setMotionAmount,
@@ -36,6 +43,7 @@ export default function Editor({
   const pending = useRef(null); // { mode: "replace" | "add", name }
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [elapsed, setElapsed] = useState(0); // seconds spent in the current render
   const [selectedCut, setSelectedCut] = useState(null); // selected clip name (drives transition + motion)
   const [currentType, setCurrentType] = useState("fade");
   const [currentMotion, setCurrentMotion] = useState("zoomin");
@@ -121,6 +129,15 @@ export default function Editor({
 
   useEffect(() => { draw(time); }, [time, draw]);
   useEffect(() => { setTime(0); }, [audioUrl]);
+
+  // Elapsed render timer.
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    const start = Date.now();
+    setElapsed(0);
+    const id = setInterval(() => setElapsed((Date.now() - start) / 1000), 250);
+    return () => clearInterval(id);
+  }, [busy]);
 
   useEffect(() => {
     const a = audioRef.current;
@@ -289,10 +306,21 @@ export default function Editor({
             </div>
           )}
 
-          <button className="render" onClick={onRender} disabled={busy}>
-            {busy ? `Rendering… ${Math.round(progress * 100)}%` : "Render MP4"}
-          </button>
-          {busy && <div className="progress"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
+          {!busy ? (
+            <button className="render" onClick={onRender}>Render MP4</button>
+          ) : (
+            <>
+              <button className="render render--busy" disabled>
+                Rendering… {Math.round(progress * 100)}%
+              </button>
+              <div className="progress"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+              <div className="render-meta">
+                <span>{clock(elapsed)} elapsed</span>
+                {progress > 0.03 && <span>~{clock(elapsed * (1 - progress) / progress)} left</span>}
+              </div>
+              <button className="cancel" onClick={onCancel}>Cancel</button>
+            </>
+          )}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}
         </div>

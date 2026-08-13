@@ -6,7 +6,7 @@ import { buildTimeline, LEAD_IN } from "../lib/timeline";
 import { resolveDimensions } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
-import { renderVideo } from "../lib/ffmpegRender";
+import { renderVideo, cancelRender } from "../lib/ffmpegRender";
 import { DEFAULT_TRANSITION_DURATION } from "../lib/transitions";
 import Dropzone from "../components/Dropzone";
 import Editor from "../components/Editor";
@@ -176,7 +176,16 @@ export default function Home() {
 
   const ready = audioFile && clips.length > 0;
 
+  const cancelRef = useRef(false);
+  const onCancel = useCallback(() => {
+    cancelRef.current = true;
+    cancelRender();
+    setBusy(false);
+    setProgress(0);
+  }, []);
+
   const onRender = useCallback(async () => {
+    cancelRef.current = false;
     setBusy(true); setError(null); setOutUrl(null); setProgress(0);
     try {
       const transitions = clips.map((c) => transitionsByName[c.name] || "cut");
@@ -189,8 +198,11 @@ export default function Home() {
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
-    } catch (e) { setError(e.message || String(e)); }
-    finally { setBusy(false); }
+    } catch (e) {
+      if (!cancelRef.current) setError(e.message || String(e));
+    } finally {
+      if (!cancelRef.current) setBusy(false);
+    }
   }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, motionByName, motionAmount, fadeIn, fadeOut]);
 
   return (
@@ -258,7 +270,7 @@ export default function Home() {
           clips={clips} imageEls={imageEls} audioUrl={audioUrl}
           duration={audioDuration} peaks={peaks} dims={dims}
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
-          onRender={onRender} busy={busy} progress={progress}
+          onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
           replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}
           transitionsByName={transitionsByName} transitionDuration={transitionDuration}
