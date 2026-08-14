@@ -53,6 +53,7 @@ body {
   width: 9px; height: 9px; border-radius: 50%; background: var(--amber);
 }
 .brand__name { font-size: 16px; letter-spacing: -0.2px; }
+.brand__pre { color: var(--muted); font-weight: 600; }
 .brand__tag {
   font-family: var(--font-mono); font-size: 11px; letter-spacing: .5px;
   color: var(--faint); padding-left: 10px; margin-left: 6px;

@@ -227,7 +227,7 @@ export default function Home() {
       <header className={`bar${ready ? "" : " bar--onboard"}`}>
         <div className="brand">
           <span className="brand__dot" />
-          <span className="brand__name">AutoReel</span>
+          <span className="brand__name"><span className="brand__pre">TryAIToday</span> AutoEditor</span>
           <span className="brand__tag">image · voiceover sync</span>
         </div>
         <div className="bar__io">
@@ -250,7 +250,7 @@ export default function Home() {
           <h1 className="onboard__h">Sync your images to a voiceover, automatically.</h1>
           <p className="onboard__p">
             Name each image with the second it appears — <code>0-03.png</code> cuts in at 0:03 —
-            then drop it in with your voiceover. AutoReel builds the timeline for you.
+            then drop it in with your voiceover. AutoEditor builds the timeline for you.
             Everything runs in your browser. Nothing is uploaded.
           </p>
 

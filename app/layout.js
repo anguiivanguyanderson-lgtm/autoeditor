@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "AutoReel — image · voiceover sync",
+  title: "TryAIToday AutoEditor — image · voiceover sync",
   description: "Sync timestamp-named images to a voiceover and export an MP4, entirely in your browser.",
 };
 
