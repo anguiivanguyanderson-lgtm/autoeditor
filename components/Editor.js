@@ -28,6 +28,7 @@ export default function Editor({
   replaceImage, removeImage, fillGap,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
+  undo, redo, canUndo, canRedo,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
@@ -204,6 +205,16 @@ export default function Editor({
               <span className="time__total">{tc(duration)}</span>
             </div>
             <div className="transport__spacer" />
+            <div className="history">
+              <button
+                className="hbtn" onClick={undo} disabled={!canUndo}
+                title="Undo (Ctrl+Z)" aria-label="Undo"
+              >↺</button>
+              <button
+                className="hbtn" onClick={redo} disabled={!canRedo}
+                title="Redo (Ctrl+Shift+Z)" aria-label="Redo"
+              >↻</button>
+            </div>
             {active && (
               <div className="nowclip">
                 <span className="nowclip__k">now</span>

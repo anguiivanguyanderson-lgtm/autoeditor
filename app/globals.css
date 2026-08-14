@@ -156,6 +156,16 @@ body {
 .time__sep { color: var(--faint); }
 .time__total { color: var(--muted); }
 .transport__spacer { flex: 1; }
+.history { display: flex; gap: 6px; margin-right: 12px; }
+.hbtn {
+  width: 34px; height: 34px; display: grid; place-items: center;
+  font-size: 17px; line-height: 1; color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  cursor: pointer; transition: border-color .12s, color .12s, opacity .12s;
+}
+.hbtn:hover:not(:disabled) { border-color: var(--accent); color: #dfe6ff; }
+.hbtn:active:not(:disabled) { transform: translateY(1px); }
+.hbtn:disabled { opacity: .4; cursor: default; }
 .nowclip {
   font-family: var(--font-mono); font-size: 12px; color: var(--muted);
   border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px;
@@ -368,6 +378,29 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
   .viewer { flex: none; }
   .viewer__frame { flex: none; aspect-ratio: 16 / 9; }
   .onboard__zones { grid-template-columns: 1fr; }
+
+  /* Touch has no hover: keep the per-clip controls visible and tappable. */
+  .clip__actions { opacity: 1; }
+  .clip__btn { width: 26px; height: 26px; font-size: 13px; }
+  .cut { width: 26px; height: 26px; font-size: 13px; }
+  .clip__plus { font-size: 22px; }
+}
+
+/* Phones: turn the timeline into a horizontally scrollable editor track so
+   clips stay legible and tappable instead of collapsing into slivers. */
+@media (max-width: 640px) {
+  .tl {
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+    padding-bottom: 10px; scrollbar-width: thin;
+  }
+  .tl::-webkit-scrollbar { height: 7px; }
+  .tl::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+  /* Give the track real width; the video scrubs into view by scrolling. */
+  .tl__row { min-width: 680px; }
+  .tl__track { touch-action: pan-x; cursor: pointer; }
+  .tl__lane--video, .tl__tag { height: 78px; }
+  .clip__meta { font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

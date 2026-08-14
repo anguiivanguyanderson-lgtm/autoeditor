@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./globals.css";
 import { parseTimestampName } from "../lib/timestamp";
 import { buildTimeline, LEAD_IN } from "../lib/timeline";
@@ -20,8 +20,31 @@ function loadImageEl(file) {
   });
 }
 
-function revoke(slot) {
-  if (slot && slot.img && slot.img.url) URL.revokeObjectURL(slot.img.url);
+// Undo/redo over one composition snapshot. Object URLs are intentionally never
+// revoked, so an undone snapshot still points at a live image.
+function useHistory(initial) {
+  const [hist, setHist] = useState({ past: [], present: initial, future: [] });
+  const commit = useCallback((updater) => {
+    setHist((h) => {
+      const next = typeof updater === "function" ? updater(h.present) : updater;
+      if (next === h.present) return h;
+      return { past: [...h.past, h.present], present: next, future: [] };
+    });
+  }, []);
+  const undo = useCallback(() => setHist((h) => {
+    if (!h.past.length) return h;
+    const prev = h.past[h.past.length - 1];
+    return { past: h.past.slice(0, -1), present: prev, future: [h.present, ...h.future] };
+  }), []);
+  const redo = useCallback(() => setHist((h) => {
+    if (!h.future.length) return h;
+    const nxt = h.future[0];
+    return { past: [...h.past, h.present], present: nxt, future: h.future.slice(1) };
+  }), []);
+  return [
+    hist.present, commit,
+    { undo, redo, canUndo: hist.past.length > 0, canRedo: hist.future.length > 0 },
+  ];
 }
 
 // A slot is one point on the timeline: { id, seconds, file, img, empty }.
@@ -31,10 +54,8 @@ export default function Home() {
   const [audioUrl, setAudioUrl] = useState(null);
   const [audioDuration, setAudioDuration] = useState(0);
   const [peaks, setPeaks] = useState([]);
-  const [slots, setSlots] = useState([]);
   const [aspect, setAspect] = useState("16:9");
   const [fps, setFps] = useState(30);
-  const [transitionsByName, setTransitionsByName] = useState({}); // clip name -> transition id
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
   const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
@@ -44,6 +65,11 @@ export default function Home() {
   const [error, setError] = useState(null);
   const idRef = useRef(0);
   const nextId = () => `s${idRef.current++}`;
+
+  // Composition (undoable): slots + per-clip transition choices, snapshotted together.
+  const [doc, commitDoc, { undo, redo, canUndo, canRedo }] =
+    useHistory({ slots: [], transitionsByName: {} });
+  const { slots, transitionsByName } = doc;
 
   const onAudio = useCallback(async (files) => {
     const file = files[0];
@@ -66,63 +92,76 @@ export default function Home() {
     const loaded = await Promise.all(
       files.map(async (f) => ({ file: f, seconds: parseTimestampName(f.name), img: await loadImageEl(f) }))
     );
-    setSlots((prev) => {
-      const next = prev.map((s) => ({ ...s }));
+    commitDoc((d) => {
+      const next = d.slots.map((s) => ({ ...s }));
       for (const { file, seconds, img } of loaded) {
         const slot = seconds != null ? next.find((s) => s.seconds === seconds) : null;
         if (slot) {
-          revoke(slot);
           slot.file = file; slot.img = img; slot.empty = false;
         } else {
           next.push({ id: nextId(), seconds, file, img, empty: false });
         }
       }
-      return next;
+      return { ...d, slots: next };
     });
-  }, []);
+  }, [commitDoc]);
 
   // Swap the image in one slot, keeping its timestamp.
   const replaceImage = useCallback(async (id, file) => {
     if (!file || !file.type.startsWith("image/")) return;
     const img = await loadImageEl(file);
-    setSlots((prev) => prev.map((s) => {
-      if (s.id !== id) return s;
-      revoke(s);
-      return { ...s, file, img, empty: false };
+    commitDoc((d) => ({
+      ...d,
+      slots: d.slots.map((s) => (s.id === id ? { ...s, file, img, empty: false } : s)),
     }));
-  }, []);
+  }, [commitDoc]);
 
   // Removing an image turns its slot into a placeholder — neighbours don't move.
   const removeImage = useCallback((id) => {
-    setSlots((prev) => prev.map((s) => {
-      if (s.id !== id) return s;
-      revoke(s);
-      return { ...s, file: null, img: null, empty: true };
+    commitDoc((d) => ({
+      ...d,
+      slots: d.slots.map((s) => (s.id === id ? { ...s, file: null, img: null, empty: true } : s)),
     }));
-  }, []);
+  }, [commitDoc]);
 
   // Fill a gap. LEAD_IN adds a new slot at 0; otherwise fill the empty slot.
   const fillGap = useCallback(async (name, file) => {
     if (!file || !file.type.startsWith("image/")) return;
     const img = await loadImageEl(file);
-    if (name === LEAD_IN) {
-      setSlots((prev) => [...prev, { id: nextId(), seconds: 0, file, img, empty: false }]);
-    } else {
-      setSlots((prev) => prev.map((s) => (s.id === name ? { ...s, file, img, empty: false } : s)));
-    }
-  }, []);
+    commitDoc((d) => {
+      if (name === LEAD_IN) {
+        return { ...d, slots: [...d.slots, { id: nextId(), seconds: 0, file, img, empty: false }] };
+      }
+      return { ...d, slots: d.slots.map((s) => (s.id === name ? { ...s, file, img, empty: false } : s)) };
+    });
+  }, [commitDoc]);
 
   const setTransition = useCallback((name, type) => {
-    setTransitionsByName((prev) => ({ ...prev, [name]: type }));
-  }, []);
+    commitDoc((d) => ({ ...d, transitionsByName: { ...d.transitionsByName, [name]: type } }));
+  }, [commitDoc]);
   const applyTransitionAll = useCallback((type, clipNames) => {
-    setTransitionsByName(() => {
+    commitDoc((d) => {
       const next = {};
       // Skip the first clip — it has no incoming cut.
       for (let i = 1; i < clipNames.length; i++) next[clipNames[i]] = type;
-      return next;
+      return { ...d, transitionsByName: next };
     });
-  }, []);
+  }, [commitDoc]);
+
+  // Keyboard: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo.
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "textarea") return;
+      const meta = e.ctrlKey || e.metaKey;
+      if (!meta) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   const items = useMemo(
     () => slots.map((s) => ({ name: s.id, seconds: s.seconds, empty: s.empty })),
@@ -256,6 +295,7 @@ export default function Home() {
           setTransitionDuration={setTransitionDuration}
           fadeIn={fadeIn} setFadeIn={setFadeIn}
           fadeOut={fadeOut} setFadeOut={setFadeOut}
+          undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
         />
       )}
       </div>
