@@ -8,6 +8,13 @@ function label(t) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Filename without its extension, for the clip caption.
+function stem(name) {
+  if (!name) return "";
+  const i = name.lastIndexOf(".");
+  return i > 0 ? name.slice(0, i) : name;
+}
+
 function Waveform({ peaks }) {
   if (!peaks || !peaks.length) return <div className="wave wave--empty" />;
   const n = peaks.length;
@@ -131,15 +138,17 @@ export default function Timeline({
               if (c.name === activeName) cls.push("is-active");
               if (c.name === selectedName) cls.push("is-selected");
               if (badClips && badClips.has(c.name)) cls.push("is-bad");
+              const fname = el && el.fileName ? stem(el.fileName) : "";
               return (
                 <div
                   key={c.name}
                   className={cls.join(" ")}
                   style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
-                  title={`${label(c.start)} · ${c.duration.toFixed(1)}s — click to select`}
+                  title={`${el && el.fileName ? el.fileName + " · " : ""}${label(c.start)} · ${c.duration.toFixed(1)}s — click to select`}
                   onClick={() => onSelect && onSelect(c.name)}
                 >
                   <span className="clip__meta">{c.duration.toFixed(1)}s</span>
+                  {fname && <span className="clip__name">{fname}</span>}
                   <div className="clip__actions">
                     <button
                       type="button" className="clip__btn" title="Replace this image"

@@ -15,7 +15,7 @@ function loadImageEl(file) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => { img.url = url; resolve(img); };
+    img.onload = () => { img.url = url; img.fileName = file.name; resolve(img); };
     img.src = url;
   });
 }

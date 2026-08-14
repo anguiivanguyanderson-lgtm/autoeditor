@@ -278,9 +278,15 @@ body {
 .clip.is-bad { box-shadow: inset 0 0 0 2px var(--bad); }
 .clip.is-selected { box-shadow: inset 0 0 0 2px var(--accent); z-index: 3; }
 .clip__meta {
-  position: absolute; left: 4px; bottom: 4px; z-index: 1;
+  position: absolute; left: 4px; top: 4px; z-index: 1;
   font-family: var(--font-mono); font-size: 10px; color: #fff;
   background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 4px; white-space: nowrap;
+}
+.clip__name {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+  font-size: 10px; line-height: 1.4; color: #eef1f7;
+  background: rgba(6,8,11,.72); padding: 2px 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .clip__actions {
   position: absolute; top: 3px; right: 3px; z-index: 3;
