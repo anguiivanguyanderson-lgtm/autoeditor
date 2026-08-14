@@ -224,7 +224,7 @@ export default function Home() {
 
   return (
     <main className="app">
-      <header className="bar">
+      <header className={`bar${ready ? "" : " bar--onboard"}`}>
         <div className="brand">
           <span className="brand__dot" />
           <span className="brand__name">AutoReel</span>
@@ -251,7 +251,7 @@ export default function Home() {
           <p className="onboard__p">
             Name each image with the second it appears — <code>0-03.png</code> cuts in at 0:03 —
             then drop it in with your voiceover. AutoReel builds the timeline for you.
-            Everything runs in your browser; nothing is uploaded.
+            Everything runs in your browser. Nothing is uploaded.
           </p>
 
           <div className="onboard__zones">
