@@ -59,6 +59,9 @@ body {
   border-left: 1px solid var(--line);
 }
 .bar__io { display: flex; gap: 10px; flex-wrap: wrap; }
+/* On the landing screen the hero already has prominent drop zones —
+   drop the duplicate compact import pair from the top bar. */
+.bar--onboard .bar__io { display: none; }
 
 /* ---------- Dropzone ---------- */
 .dz {
@@ -407,10 +410,6 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
   .tl__track { touch-action: pan-x; cursor: pointer; }
   .tl__lane--video, .tl__tag { height: 78px; }
   .clip__meta { font-size: 11px; }
-
-  /* On the landing screen the hero already has prominent drop zones —
-     drop the duplicate compact pair from the top bar. */
-  .bar--onboard .bar__io { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
