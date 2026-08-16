@@ -5,6 +5,9 @@ import {
   TRANSITION_LIST, transitionOf,
   MIN_TRANSITION_DURATION, MAX_TRANSITION_DURATION,
 } from "../lib/transitions";
+import {
+  CAPTION_STYLE_LIST, captionAt, drawCaption, captionFontPx,
+} from "../lib/captions";
 
 function tc(t) {
   if (!isFinite(t) || t < 0) t = 0;
@@ -29,11 +32,14 @@ export default function Editor({
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
   undo, redo, canUndo, canRedo,
+  captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
+  captionSize, setCaptionSize, captionName, captionError, onCaptionFile,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
   const rafRef = useRef(0);
   const fileInputRef = useRef(null);
+  const capInputRef = useRef(null);
   const pending = useRef(null); // { mode: "replace" | "add", name }
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -61,6 +67,12 @@ export default function Editor({
     e.target.value = "";
     pending.current = null;
   }, [replaceImage, fillGap]);
+
+  const onPickCaption = useCallback((e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file && onCaptionFile) onCaptionFile(file);
+    e.target.value = "";
+  }, [onCaptionFile]);
 
   const draw = useCallback((t) => {
     const canvas = canvasRef.current;
@@ -95,6 +107,12 @@ export default function Editor({
       }
     }
 
+    // Captions burn in before the fades, so the fade dims them too.
+    if (captionsOn && captionCues && captionCues.length) {
+      const txt = captionAt(captionCues, t);
+      if (txt) drawCaption(ctx, txt, W, H, captionStyle, captionFontPx(H, captionSize));
+    }
+
     // Scene fades (opening / ending).
     if (fadeIn > 0 && t < fadeIn) {
       ctx.globalAlpha = Math.max(0, 1 - t / fadeIn);
@@ -105,7 +123,8 @@ export default function Editor({
       ctx.globalAlpha = Math.min(1, (t - outStart) / fadeOut);
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
-  }, [clips, imageEls, transitionsByName, transitionDuration, fadeIn, fadeOut, duration]);
+  }, [clips, imageEls, transitionsByName, transitionDuration, fadeIn, fadeOut, duration,
+      captionsOn, captionCues, captionStyle, captionSize]);
 
   useEffect(() => { draw(time); }, [time, draw]);
   useEffect(() => { setTime(0); }, [audioUrl]);
@@ -322,6 +341,70 @@ export default function Editor({
           </label>
         </div>
 
+        <div className="panel captions">
+          <h2 className="panel__h">Captions</h2>
+          {!(captionCues && captionCues.length) ? (
+            <div className="cap-empty">
+              <button type="button" className="cap-upload" onClick={() => capInputRef.current && capInputRef.current.click()}>
+                <span className="cap-upload__i">⤒</span> Upload timestamped script
+              </button>
+              <p className="cap-hint">
+                An <code>.srt</code>, <code>.vtt</code>, or timestamped <code>.txt</code> (e.g. a
+                NoteGPT transcript). Captions sync to the audio and burn into the MP4.
+              </p>
+              {captionError && <div className="note note--bad">{captionError}</div>}
+            </div>
+          ) : (
+            <>
+              <div className="cap-bar">
+                <button
+                  type="button"
+                  className={`cap-switch ${captionsOn ? "is-on" : ""}`}
+                  onClick={() => setCaptionsOn(!captionsOn)}
+                  aria-pressed={captionsOn}
+                >
+                  <span className="cap-switch__box" />
+                  {captionsOn ? "On" : "Off"}
+                </button>
+                <span className="cap-meta">
+                  <span className="cap-meta__name">{captionName || "captions"}</span>
+                  {captionCues.length} lines ·{" "}
+                  <button type="button" className="cap-replace" onClick={() => capInputRef.current && capInputRef.current.click()}>replace</button>
+                </span>
+              </div>
+
+              <div className="cap-body" aria-disabled={!captionsOn}>
+                <div className="mini-h">Style</div>
+                <div className="transitions__chips">
+                  {CAPTION_STYLE_LIST.map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      className={`trchip ${captionStyle === st.id ? "is-on" : ""}`}
+                      onClick={() => setCaptionStyle(st.id)}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mini-h" style={{ marginTop: 12 }}>Size</div>
+                <div className="seg">
+                  {[["sm", "Small"], ["md", "Medium"], ["lg", "Large"]].map(([id, lbl]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={captionSize === id ? "is-on" : ""}
+                      onClick={() => setCaptionSize(id)}
+                    >{lbl}</button>
+                  ))}
+                </div>
+              </div>
+              {captionError && <div className="note note--bad">{captionError}</div>}
+            </>
+          )}
+        </div>
+
         <div className="panel transitions">
           <div className="transitions__head">
             <span className="panel__h">Transitions</span>
@@ -368,6 +451,10 @@ export default function Editor({
       <input
         ref={fileInputRef} type="file" accept="image/*" hidden
         onChange={onPickFile}
+      />
+      <input
+        ref={capInputRef} type="file" accept=".srt,.vtt,.txt,text/plain" hidden
+        onChange={onPickCaption}
       />
     </section>
   );

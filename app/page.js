@@ -8,6 +8,7 @@ import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo, cancelRender } from "../lib/ffmpegRender";
 import { DEFAULT_TRANSITION_DURATION } from "../lib/transitions";
+import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
 import Editor from "../components/Editor";
 
@@ -59,6 +60,11 @@ export default function Home() {
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
   const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
+  const [captionRaw, setCaptionRaw] = useState(null); // uploaded transcript text
+  const [captionName, setCaptionName] = useState(null);
+  const [captionsOn, setCaptionsOn] = useState(false);
+  const [captionStyle, setCaptionStyle] = useState("classic");
+  const [captionSize, setCaptionSize] = useState("md");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [outUrl, setOutUrl] = useState(null);
@@ -136,6 +142,24 @@ export default function Home() {
     });
   }, [commitDoc]);
 
+  // Read an uploaded transcript; parsing happens in a memo below so it re-syncs
+  // if the audio length changes.
+  const onCaptionFile = useCallback(async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setCaptionRaw(text);
+      setCaptionName(file.name);
+      setCaptionsOn(true);
+    } catch (e) { setError(e.message || String(e)); }
+  }, []);
+  const captionParse = useMemo(
+    () => (captionRaw ? parseTranscript(captionRaw, audioDuration) : { cues: [], error: null }),
+    [captionRaw, audioDuration]
+  );
+  const captionCues = captionParse.cues;
+  const captionError = captionParse.error;
+
   const setTransition = useCallback((name, type) => {
     commitDoc((d) => ({ ...d, transitionsByName: { ...d.transitionsByName, [name]: type } }));
   }, [commitDoc]);
@@ -208,10 +232,12 @@ export default function Home() {
     setBusy(true); setError(null); setOutUrl(null); setProgress(0);
     try {
       const transitions = clips.map((c) => transitionsByName[c.name] || "cut");
+      const captions = captionsOn && captionCues.length ? captionCues : null;
       const blob = await renderVideo({
         clips, imagesByName, audioFile,
         width: dims.width, height: dims.height, fps,
         transitions, transitionDuration, fadeIn, fadeOut,
+        captions, captionStyle, captionSize,
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
@@ -220,7 +246,8 @@ export default function Home() {
     } finally {
       if (!cancelRef.current) setBusy(false);
     }
-  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, fadeIn, fadeOut]);
+  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, fadeIn, fadeOut,
+      captionsOn, captionCues, captionStyle, captionSize]);
 
   return (
     <main className="app">
@@ -296,6 +323,10 @@ export default function Home() {
           fadeIn={fadeIn} setFadeIn={setFadeIn}
           fadeOut={fadeOut} setFadeOut={setFadeOut}
           undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
+          captionCues={captionCues} captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}
+          captionStyle={captionStyle} setCaptionStyle={setCaptionStyle}
+          captionSize={captionSize} setCaptionSize={setCaptionSize}
+          captionName={captionName} captionError={captionError} onCaptionFile={onCaptionFile}
         />
       )}
       </div>
