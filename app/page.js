@@ -200,7 +200,10 @@ export default function Home() {
   }, [undo, redo]);
 
   const items = useMemo(
-    () => slots.map((s) => ({ name: s.id, seconds: s.seconds, empty: s.empty })),
+    () => slots.map((s) => ({
+      name: s.id, seconds: s.seconds, empty: s.empty,
+      label: (s.img && s.img.fileName) || (s.file && s.file.name) || s.id,
+    })),
     [slots]
   );
   const imagesByName = useMemo(() => {
