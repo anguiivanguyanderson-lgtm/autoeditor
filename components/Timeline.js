@@ -63,8 +63,14 @@ export default function Timeline({
   const pct = (v) => `${Math.min(100, (v / duration) * 100)}%`;
   const stop = (e) => e.stopPropagation();
 
+  // Give each clip a readable minimum: when the timeline is dense, widen the
+  // track past the container so it scrolls horizontally instead of crushing
+  // clips into slivers. Percentages resolve against this wider track, so the
+  // ruler, clips, waveform and playhead all stay aligned.
+  const rowMin = clips.length ? 30 + clips.length * 72 : 0;
+
   return (
-    <div className="tl">
+    <div className="tl" style={rowMin ? { "--tl-min": `${rowMin}px` } : undefined}>
       <div className="tl__row tl__row--ruler">
         <div className="tl__gutter" aria-hidden="true" />
         <div className="tl__ruler">

@@ -287,8 +287,13 @@ body {
 .tl {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; padding: 12px 14px 16px; user-select: none;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
 }
-.tl__row { display: flex; gap: 8px; align-items: stretch; }
+.tl::-webkit-scrollbar { height: 8px; }
+.tl::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+/* Dense timelines set --tl-min (px) so the track widens past the container and
+   scrolls, instead of crushing clips into slivers. */
+.tl__row { display: flex; gap: 8px; align-items: stretch; min-width: var(--tl-min, 0px); }
 .tl__row--ruler { margin-bottom: 4px; }
 .tl__gutter { flex: none; width: 22px; display: flex; flex-direction: column; gap: 6px; }
 
@@ -493,15 +498,9 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
 /* Phones: turn the timeline into a horizontally scrollable editor track so
    clips stay legible and tappable instead of collapsing into slivers. */
 @media (max-width: 640px) {
-  .tl {
-    overflow-x: auto; overflow-y: hidden;
-    -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
-    padding-bottom: 10px; scrollbar-width: thin;
-  }
-  .tl::-webkit-scrollbar { height: 7px; }
-  .tl::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
-  /* Give the track real width; the video scrubs into view by scrolling. */
-  .tl__row { min-width: 680px; }
+  .tl { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; padding-bottom: 10px; }
+  /* Phones get a bigger floor so even sparse timelines are finger-friendly. */
+  .tl__row { min-width: max(var(--tl-min, 0px), 680px); }
   .tl__track { touch-action: pan-x; cursor: pointer; }
   .tl__lane--video, .tl__tag { height: 78px; }
   .clip__meta { font-size: 11px; }
