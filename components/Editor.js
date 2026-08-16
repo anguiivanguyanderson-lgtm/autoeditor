@@ -46,11 +46,6 @@ export default function Editor({
   const [elapsed, setElapsed] = useState(0); // seconds spent in the current render
   const [selectedCut, setSelectedCut] = useState(null); // selected clip name (drives transition)
   const [currentType, setCurrentType] = useState("fade");
-  const [fast, setFast] = useState(false); // multi-threaded ffmpeg available?
-
-  useEffect(() => {
-    setFast(typeof window !== "undefined" && window.crossOriginIsolated === true);
-  }, []);
 
   const askReplace = useCallback((name) => {
     pending.current = { mode: "replace", name };
@@ -304,12 +299,6 @@ export default function Editor({
             <div className="spec"><dt>Resolution</dt><dd>{dims.width}×{dims.height}</dd></div>
             <div className="spec"><dt>Images</dt><dd>{imageCount}</dd></div>
             <div className="spec"><dt>Length</dt><dd>{tc(duration)}</dd></div>
-            <div className="spec">
-              <dt>Engine</dt>
-              <dd className={fast ? "engine engine--fast" : "engine"}>
-                {fast ? "⚡ Multi-threaded" : "Single-thread"}
-              </dd>
-            </div>
           </dl>
 
           {gapCount > 0 && (
