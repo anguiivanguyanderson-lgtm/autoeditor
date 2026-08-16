@@ -38,6 +38,7 @@ body {
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   line-height: 1.5;
+  overflow-x: hidden; /* the page itself never scrolls sideways */
 }
 
 .app {
@@ -74,7 +75,7 @@ body {
 
 /* ---------- Dropzone ---------- */
 .dz {
-  display: flex; align-items: center; gap: 14px; text-align: left;
+  display: flex; align-items: center; gap: 14px; text-align: left; min-width: 0;
   background: var(--panel-2); color: var(--text);
   border: 1.5px dashed var(--line); border-radius: var(--r);
   padding: 22px; cursor: pointer; font: inherit;
@@ -99,7 +100,7 @@ body {
 .dz__hint { font-size: 12.5px; color: var(--muted); }
 
 /* ---------- Onboarding ---------- */
-.onboard { max-width: 620px; margin: auto; padding: 24px 0; text-align: center; overflow-y: auto; }
+.onboard { max-width: 620px; min-width: 0; margin: auto; padding: 24px 0; text-align: center; overflow-y: auto; }
 .onboard__h {
   font-size: clamp(21px, 2.6vw, 27px); line-height: 1.25; font-weight: 650;
   letter-spacing: -0.3px; margin: 0 0 12px;
