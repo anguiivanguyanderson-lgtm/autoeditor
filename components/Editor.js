@@ -349,8 +349,9 @@ export default function Editor({
                 <span className="cap-upload__i">⤒</span> Upload timestamped script
               </button>
               <p className="cap-hint">
-                An <code>.srt</code>, <code>.vtt</code>, or timestamped <code>.txt</code> (e.g. a
-                NoteGPT transcript). Captions sync to the audio and burn into the MP4.
+                An <code>.srt</code>, <code>.vtt</code>, or timestamped <code>.txt</code> — inline
+                markers like <code>(0:03)</code>, NoteGPT ranges, or <code>[0:03]</code> lines all
+                work. Captions sync to the audio and burn into the MP4.
               </p>
               {captionError && <div className="note note--bad">{captionError}</div>}
             </div>
