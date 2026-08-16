@@ -126,6 +126,40 @@ body {
   border: 1px solid var(--amber-dim); border-radius: 6px;
 }
 
+/* ---------- Import tray (staging grid before building the timeline) ---------- */
+.tray { margin-top: 22px; text-align: left; }
+.tray__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.tray__count { font-weight: 650; font-size: 14px; }
+.tray__sub { font-size: 12px; color: var(--muted); }
+.tray__grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px; max-height: 320px; overflow-y: auto; padding: 2px;
+}
+.thumb {
+  position: relative; aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb--notime { border-color: var(--amber-dim); }
+.thumb__time {
+  position: absolute; left: 5px; bottom: 5px;
+  font-family: var(--font-mono); font-size: 10px; color: #fff;
+  background: rgba(0,0,0,.62); padding: 1px 5px; border-radius: 4px;
+}
+.thumb--notime .thumb__time { background: var(--amber); color: #1a1204; }
+.thumb__x {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
+  display: grid; place-items: center; border: none; border-radius: 6px;
+  background: rgba(6,8,11,.82); color: #fff; cursor: pointer; font-size: 11px; line-height: 1;
+  opacity: 0; transition: opacity .12s, background .12s;
+}
+.thumb:hover .thumb__x, .thumb:focus-within .thumb__x { opacity: 1; }
+.thumb__x:hover { background: var(--bad); color: #200; }
+
+.build-row { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 24px; }
+.build { width: 100%; max-width: 320px; }
+.build-hint { font-size: 12.5px; color: var(--muted); }
+
 /* ---------- Editor: fills the viewport, no window scroll ---------- */
 .editor {
   flex: 1; min-height: 0; width: 100%;
@@ -450,6 +484,7 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
 
   /* Touch has no hover: keep the per-clip controls visible and tappable. */
   .clip__actions { opacity: 1; }
+  .thumb__x { opacity: 1; }
   .clip__btn { width: 26px; height: 26px; font-size: 13px; }
   .cut { width: 26px; height: 26px; font-size: 13px; }
   .clip__plus { font-size: 22px; }

@@ -21,6 +21,12 @@ function loadImageEl(file) {
   });
 }
 
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 // Undo/redo over one composition snapshot. Object URLs are intentionally never
 // revoked, so an undone snapshot still points at a live image.
 function useHistory(initial) {
@@ -65,6 +71,7 @@ export default function Home() {
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionStyle, setCaptionStyle] = useState("classic");
   const [captionSize, setCaptionSize] = useState("md");
+  const [built, setBuilt] = useState(false);          // committed images to the timeline?
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [outUrl, setOutUrl] = useState(null);
@@ -120,6 +127,11 @@ export default function Home() {
       ...d,
       slots: d.slots.map((s) => (s.id === id ? { ...s, file, img, empty: false } : s)),
     }));
+  }, [commitDoc]);
+
+  // Discard a staged image entirely (used in the pre-build import tray).
+  const discardImage = useCallback((id) => {
+    commitDoc((d) => ({ ...d, slots: d.slots.filter((s) => s.id !== id) }));
   }, [commitDoc]);
 
   // Removing an image turns its slot into a placeholder — neighbours don't move.
@@ -203,6 +215,16 @@ export default function Home() {
   }, [slots]);
   const imageCount = useMemo(() => slots.filter((s) => !s.empty && s.img).length, [slots]);
 
+  // Staged thumbnails for the pre-build import tray, ordered by timestamp
+  // (files with no parseable timestamp sort last and are flagged).
+  const tray = useMemo(
+    () => slots
+      .filter((s) => !s.empty && s.img)
+      .map((s) => ({ id: s.id, url: s.img.url, name: s.img.fileName || (s.file && s.file.name) || "", seconds: s.seconds }))
+      .sort((a, b) => (a.seconds == null ? Infinity : a.seconds) - (b.seconds == null ? Infinity : b.seconds)),
+    [slots]
+  );
+
   const sample = useMemo(() => {
     const imaged = slots
       .filter((s) => !s.empty && s.img && s.seconds != null)
@@ -218,6 +240,7 @@ export default function Home() {
   );
 
   const ready = audioFile && clips.length > 0;
+  const showEditor = built && ready;
 
   const cancelRef = useRef(false);
   const onCancel = useCallback(() => {
@@ -251,7 +274,7 @@ export default function Home() {
 
   return (
     <main className="app">
-      <header className={`bar${ready ? "" : " bar--onboard"}`}>
+      <header className={`bar${showEditor ? "" : " bar--onboard"}`}>
         <div className="brand">
           <span className="brand__dot" />
           <span className="brand__name"><span className="brand__pre">TryAIToday</span> AutoEditor</span>
@@ -272,12 +295,12 @@ export default function Home() {
       </header>
 
       <div className="content">
-      {!ready ? (
+      {!showEditor ? (
         <section className="onboard">
           <h1 className="onboard__h">Sync your images to a voiceover, automatically.</h1>
           <p className="onboard__p">
             Name each image with the second it appears — <code>0-03.png</code> cuts in at 0:03 —
-            then drop it in with your voiceover. AutoEditor builds the timeline for you.
+            then import them with your voiceover. Review everything below, then build the timeline.
             Everything runs in your browser. Nothing is uploaded.
           </p>
 
@@ -291,23 +314,51 @@ export default function Home() {
             />
             <Dropzone
               multiple accept="image/*" onFiles={addImages} icon="▦"
-              title="Storyboard images"
-              hint="Named by timestamp (0-00, 0-06…). Drop files or whole folders — even several at once. Add more anytime; they merge by timestamp."
-              filled={imageCount > 0}
-              filledLabel={imageCount ? `${imageCount} images ready` : ""}
+              title={tray.length ? "Add more images" : "Storyboard images"}
+              hint="Named by timestamp (0-00, 0-06…). Drop files or whole folders — even several at once."
+              filled={false}
             />
           </div>
 
-          {audioFile && imageCount > 0 && warnings.length > 0 && (
+          {tray.length > 0 && (
+            <div className="tray">
+              <div className="tray__head">
+                <span className="tray__count">{tray.length} image{tray.length > 1 ? "s" : ""} imported</span>
+                <span className="tray__sub">ordered by timestamp — hover to remove</span>
+              </div>
+              <div className="tray__grid">
+                {tray.map((t) => (
+                  <div key={t.id} className={`thumb${t.seconds == null ? " thumb--notime" : ""}`} title={t.name}>
+                    <img src={t.url} alt="" />
+                    <span className="thumb__time">{t.seconds != null ? fmtTime(t.seconds) : "no time"}</span>
+                    <button className="thumb__x" title="Remove this image" onClick={() => discardImage(t.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {imageCount > 0 && warnings.length > 0 && (
             <div className="notes">{warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}</div>
           )}
           {error && <div className="note note--bad">{error}</div>}
 
-          <ol className="steps">
-            <li><b>1</b> Drop a voiceover — it defines the timeline length.</li>
-            <li><b>2</b> Drop images named by their timestamp.</li>
-            <li><b>3</b> Scrub, check the cuts, and render your MP4.</li>
-          </ol>
+          <div className="build-row">
+            <button
+              className="render build"
+              disabled={!audioFile || tray.length === 0 || clips.length === 0}
+              onClick={() => setBuilt(true)}
+            >
+              Build timeline →
+            </button>
+            <span className="build-hint">
+              {tray.length === 0
+                ? "Import your storyboard images to begin."
+                : !audioFile
+                  ? "Add a voiceover to build the timeline."
+                  : `${tray.length} image${tray.length > 1 ? "s" : ""} · ready to build`}
+            </span>
+          </div>
         </section>
       ) : (
         <Editor
