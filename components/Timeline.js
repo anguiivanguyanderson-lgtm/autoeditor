@@ -33,9 +33,10 @@ function Waveform({ peaks }) {
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
   transitionsByName, selectedName, onSelect,
-  onSeek, onReplace, onRemove, onAdd,
+  onSeek, onOpen, onAdd,
 }) {
   const trackRef = useRef(null);
+  const movedRef = useRef(false); // true once a scrub-drag moved, to suppress click
 
   const seekAt = useCallback((clientX) => {
     const el = trackRef.current;
@@ -46,8 +47,9 @@ export default function Timeline({
   }, [duration, onSeek]);
 
   const onPointerDown = useCallback((e) => {
+    movedRef.current = false;
     seekAt(e.clientX);
-    const move = (ev) => seekAt(ev.clientX);
+    const move = (ev) => { movedRef.current = true; seekAt(ev.clientX); };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -150,21 +152,11 @@ export default function Timeline({
                   key={c.name}
                   className={cls.join(" ")}
                   style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
-                  title={`${el && el.fileName ? el.fileName + " · " : ""}${label(c.start)} · ${c.duration.toFixed(1)}s — click to select`}
-                  onClick={() => onSelect && onSelect(c.name)}
+                  title={`${el && el.fileName ? el.fileName + " · " : ""}${label(c.start)} · ${c.duration.toFixed(1)}s — click to preview / replace`}
+                  onClick={() => { if (!movedRef.current) onOpen && onOpen(c.name); }}
                 >
                   <span className="clip__meta">{c.duration.toFixed(1)}s</span>
                   {fname && <span className="clip__name">{fname}</span>}
-                  <div className="clip__actions">
-                    <button
-                      type="button" className="clip__btn" title="Replace this image"
-                      onPointerDown={stop} onClick={() => onReplace && onReplace(c.name)}
-                    >⇄</button>
-                    <button
-                      type="button" className="clip__btn clip__btn--x" title="Remove this image"
-                      onPointerDown={stop} onClick={() => onRemove && onRemove(c.name)}
-                    >✕</button>
-                  </div>
                 </div>
               );
             })}

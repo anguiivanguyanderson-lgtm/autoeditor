@@ -340,18 +340,7 @@ body {
   background: rgba(6,8,11,.72); padding: 2px 5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.clip__actions {
-  position: absolute; top: 3px; right: 3px; z-index: 3;
-  display: flex; gap: 3px; opacity: 0; transition: opacity .12s;
-}
-.clip:hover .clip__actions, .clip:focus-within .clip__actions { opacity: 1; }
-.clip__btn {
-  width: 20px; height: 20px; display: grid; place-items: center;
-  border: none; border-radius: 5px; background: rgba(6,8,11,.82);
-  color: #fff; cursor: pointer; font-size: 11px; line-height: 1;
-}
-.clip__btn:hover { background: rgba(6,8,11,.96); }
-.clip__btn--x:hover { background: var(--bad); color: #200; }
+.clip:hover { box-shadow: inset 0 0 0 2px rgba(255,255,255,.14); }
 
 /* Empty gap placeholder */
 .clip--gap { background-color: var(--bg); box-shadow: none; }
@@ -472,6 +461,54 @@ body {
 .cut.is-on { color: var(--accent); border-color: rgba(91,124,250,.4); }
 .cut.is-sel { border-color: var(--amber); color: var(--amber); box-shadow: 0 0 0 2px rgba(245,166,35,.2); }
 
+/* ---------- Clip inspector modal ---------- */
+.modal {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(6,8,11,.72);
+}
+.modal__card {
+  width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.5);
+}
+.modal__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.modal__title { font-weight: 650; font-size: 15px; }
+.modal__at { color: var(--muted); font-family: var(--font-mono); font-weight: 400; font-size: 13px; }
+.modal__x {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+  color: var(--muted); cursor: pointer; font-size: 13px;
+}
+.modal__x:hover { border-color: var(--accent); color: var(--text); }
+.modal__stage {
+  position: relative; aspect-ratio: 16 / 9; background: #000;
+  border-radius: 10px; overflow: hidden; display: grid; place-items: center;
+}
+.modal__stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.modal__flag {
+  position: absolute; top: 8px; left: 8px;
+  font-size: 11px; font-weight: 600; color: #1a1204; background: var(--amber);
+  padding: 2px 8px; border-radius: 6px;
+}
+.modal__file {
+  margin: 10px 0 14px; font-family: var(--font-mono); font-size: 12.5px;
+  color: var(--muted); word-break: break-all;
+}
+.modal__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.mbtn {
+  flex: 1; min-width: 130px; font: inherit; font-size: 13.5px; font-weight: 600;
+  color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 11px 14px; cursor: pointer;
+  transition: border-color .12s, background .12s, filter .12s;
+}
+.mbtn:hover { border-color: var(--accent); }
+.mbtn--primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.mbtn--primary:hover { filter: brightness(1.07); border-color: transparent; }
+.mbtn--danger { color: #ffb4b4; background: rgba(255,107,107,.08); border-color: rgba(255,107,107,.28); }
+.mbtn--danger:hover { background: rgba(255,107,107,.14); border-color: var(--bad); }
+.mbtn--ghost { flex: 0 0 auto; min-width: 0; color: var(--muted); }
+
 /* focus visibility */
 button:focus-visible, .dz:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
@@ -488,10 +525,8 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
   .viewer__frame { flex: none; aspect-ratio: 16 / 9; }
   .onboard__zones { grid-template-columns: 1fr; }
 
-  /* Touch has no hover: keep the per-clip controls visible and tappable. */
-  .clip__actions { opacity: 1; }
+  /* Touch has no hover: keep tap targets visible/large. */
   .thumb__x { opacity: 1; }
-  .clip__btn { width: 26px; height: 26px; font-size: 13px; }
   .cut { width: 26px; height: 26px; font-size: 13px; }
   .clip__plus { font-size: 22px; }
 }

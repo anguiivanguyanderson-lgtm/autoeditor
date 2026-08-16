@@ -40,33 +40,60 @@ export default function Editor({
   const rafRef = useRef(0);
   const fileInputRef = useRef(null);
   const capInputRef = useRef(null);
-  const pending = useRef(null); // { mode: "replace" | "add", name }
+  const replaceInputRef = useRef(null);
+  const pending = useRef(null); // gap-fill target name
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0); // seconds spent in the current render
   const [selectedCut, setSelectedCut] = useState(null); // selected clip name (drives transition)
   const [currentType, setCurrentType] = useState("fade");
+  const [inspect, setInspect] = useState(null);   // slot name open in the inspector
+  const [pendFile, setPendFile] = useState(null);  // chosen replacement, not yet applied
+  const [pendUrl, setPendUrl] = useState(null);
 
-  const askReplace = useCallback((name) => {
-    pending.current = { mode: "replace", name };
-    if (fileInputRef.current) fileInputRef.current.click();
-  }, []);
-
+  // Gap "+" → pick a file to fill an empty slot / lead-in.
   const askAdd = useCallback((name) => {
-    pending.current = { mode: "add", name };
+    pending.current = name;
     if (fileInputRef.current) fileInputRef.current.click();
   }, []);
 
   const onPickFile = useCallback((e) => {
     const file = e.target.files && e.target.files[0];
-    const p = pending.current;
-    if (file && p) {
-      if (p.mode === "replace" && replaceImage) replaceImage(p.name, file);
-      else if (p.mode === "add" && fillGap) fillGap(p.name, file);
-    }
+    if (file && pending.current && fillGap) fillGap(pending.current, file);
     e.target.value = "";
     pending.current = null;
-  }, [replaceImage, fillGap]);
+  }, [fillGap]);
+
+  // Clip inspector: click a clip → preview → optionally pick a replacement,
+  // preview it, then Apply (or Remove the image).
+  const clearPend = useCallback(() => {
+    setPendUrl((u) => { if (u) URL.revokeObjectURL(u); return null; });
+    setPendFile(null);
+  }, []);
+  const openInspect = useCallback((name) => { clearPend(); setInspect(name); }, [clearPend]);
+  const closeInspect = useCallback(() => { clearPend(); setInspect(null); }, [clearPend]);
+  const onPickReplacement = useCallback((e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    setPendFile(file);
+    setPendUrl((u) => { if (u) URL.revokeObjectURL(u); return URL.createObjectURL(file); });
+  }, []);
+  const applyReplacement = useCallback(() => {
+    if (inspect && pendFile && replaceImage) replaceImage(inspect, pendFile);
+    closeInspect();
+  }, [inspect, pendFile, replaceImage, closeInspect]);
+  const removeInspected = useCallback(() => {
+    if (inspect && removeImage) removeImage(inspect);
+    closeInspect();
+  }, [inspect, removeImage, closeInspect]);
+
+  useEffect(() => {
+    if (!inspect) return;
+    const onEsc = (e) => { if (e.key === "Escape") closeInspect(); };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [inspect, closeInspect]);
 
   const onPickCaption = useCallback((e) => {
     const file = e.target.files && e.target.files[0];
@@ -263,8 +290,7 @@ export default function Editor({
           selectedName={selectedCut}
           onSelect={selectClip}
           onSeek={seek}
-          onReplace={askReplace}
-          onRemove={removeImage}
+          onOpen={openInspect}
           onAdd={askAdd}
         />
       </div>
@@ -414,7 +440,7 @@ export default function Editor({
                 ? `Into image ${selectedImageNum || "—"} · ${tc(selectedClip.start)}`
                 : selectedIndex === 0
                   ? "First image — no incoming transition"
-                  : "Select an image or ◇ cut"}
+                  : "Tap a ◇ cut above to set its transition"}
             </span>
           </div>
 
@@ -454,9 +480,56 @@ export default function Editor({
         onChange={onPickFile}
       />
       <input
+        ref={replaceInputRef} type="file" accept="image/*" hidden
+        onChange={onPickReplacement}
+      />
+      <input
         ref={capInputRef} type="file" accept=".srt,.vtt,.txt,text/plain" hidden
         onChange={onPickCaption}
       />
+
+      {inspect && (() => {
+        const insClip = clips.find((c) => c.name === inspect);
+        const el = imageEls[inspect];
+        const num = insClip ? imageClips.indexOf(insClip) + 1 : 0;
+        const curUrl = pendUrl || (el && el.url);
+        return (
+          <div className="modal" role="dialog" aria-modal="true" onClick={closeInspect}>
+            <div className="modal__card" onClick={(e) => e.stopPropagation()}>
+              <div className="modal__head">
+                <span className="modal__title">
+                  {num ? `Image ${num} of ${imageCount}` : "Image"}
+                  {insClip && <span className="modal__at"> · {tc(insClip.start)}</span>}
+                </span>
+                <button className="modal__x" onClick={closeInspect} aria-label="Close">✕</button>
+              </div>
+
+              <div className="modal__stage">
+                {curUrl && <img src={curUrl} alt="" />}
+                {pendUrl && <span className="modal__flag">New — not applied yet</span>}
+              </div>
+              <div className="modal__file">
+                {pendFile ? pendFile.name : (el && el.fileName) || ""}
+              </div>
+
+              {!pendUrl ? (
+                <div className="modal__actions">
+                  <button className="mbtn mbtn--primary" onClick={() => replaceInputRef.current && replaceInputRef.current.click()}>
+                    Replace image…
+                  </button>
+                  <button className="mbtn mbtn--danger" onClick={removeInspected}>Remove from timeline</button>
+                </div>
+              ) : (
+                <div className="modal__actions">
+                  <button className="mbtn mbtn--primary" onClick={applyReplacement}>Apply replacement</button>
+                  <button className="mbtn" onClick={() => replaceInputRef.current && replaceInputRef.current.click()}>Choose different…</button>
+                  <button className="mbtn mbtn--ghost" onClick={clearPend}>Cancel</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }
