@@ -1,7 +1,28 @@
 "use client";
 import { useCallback, useRef, useState } from "react";
 
-// A click-or-drop file input. `filled` swaps the label to the loaded state.
+// Recursively read every File out of a dropped entry (file or directory).
+// readEntries returns in batches of ~100, so we keep reading until it's empty.
+function readEntry(entry, out) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file((f) => { out.push(f); resolve(); }, () => resolve());
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const readBatch = () => reader.readEntries(async (batch) => {
+        if (!batch.length) return resolve();
+        await Promise.all(batch.map((e) => readEntry(e, out)));
+        readBatch();
+      }, () => resolve());
+      readBatch();
+    } else {
+      resolve();
+    }
+  });
+}
+
+// A click-or-drop file input. Dropping folders (even several at once) pulls in
+// every file inside; `filled` swaps the label to the loaded state.
 export default function Dropzone({
   accept, multiple, onFiles, compact,
   icon, title, hint, filled, filledLabel,
@@ -9,13 +30,30 @@ export default function Dropzone({
   const inputRef = useRef(null);
   const [over, setOver] = useState(false);
 
-  const onDrop = useCallback((e) => {
+  const onDrop = useCallback(async (e) => {
     e.preventDefault();
     setOver(false);
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-      onFiles(e.dataTransfer.files);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+
+    // Folder-aware path (only for multi-file zones like images). webkitGetAsEntry
+    // must be called synchronously during the drop, so grab the entries first.
+    if (multiple && dt.items && dt.items.length) {
+      const entries = Array.from(dt.items)
+        .map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+        .filter(Boolean);
+      if (entries.length) {
+        const out = [];
+        await Promise.all(entries.map((en) => readEntry(en, out)));
+        const prefix = accept && accept.endsWith("/*") ? accept.split("/")[0] : null;
+        const files = prefix ? out.filter((f) => f.type.startsWith(`${prefix}/`)) : out;
+        if (files.length) onFiles(files);
+        return;
+      }
     }
-  }, [onFiles]);
+
+    if (dt.files && dt.files.length) onFiles(dt.files);
+  }, [onFiles, multiple, accept]);
 
   const cls = ["dz"];
   if (compact) cls.push("dz--compact");

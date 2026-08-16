@@ -292,7 +292,7 @@ export default function Home() {
             <Dropzone
               multiple accept="image/*" onFiles={addImages} icon="▦"
               title="Storyboard images"
-              hint="Named by timestamp, e.g. 0-00, 0-06, 0-12"
+              hint="Named by timestamp (0-00, 0-06…). Drop files or whole folders — even several at once. Add more anytime; they merge by timestamp."
               filled={imageCount > 0}
               filledLabel={imageCount ? `${imageCount} images ready` : ""}
             />
