@@ -298,7 +298,7 @@ body {
 .tl__row--ruler { margin-bottom: 4px; }
 .tl__gutter { flex: none; width: 22px; display: flex; flex-direction: column; gap: 6px; }
 
-.tl__ruler { position: relative; flex: 1; height: 18px; overflow: hidden; }
+.tl__ruler { position: relative; flex: 1; height: 22px; overflow: hidden; }
 .tl__tick {
   position: absolute; top: 0; font-family: var(--font-mono);
   font-size: 10.5px; color: var(--faint); padding-left: 5px;
@@ -307,7 +307,11 @@ body {
   position: absolute; left: 0; top: 13px; width: 1px; height: 5px; background: var(--line);
 }
 
-.tl__track { position: relative; flex: 1; min-width: 0; touch-action: none; cursor: text; }
+.tl__track { position: relative; flex: 1; min-width: 0; }
+/* Scrub surfaces: the ruler and the waveform move the playhead. */
+.tl__scrub { cursor: pointer; touch-action: none; }
+.tl__ruler.tl__scrub { border-radius: 6px; }
+.tl__ruler.tl__scrub:hover { background: rgba(255,255,255,.04); }
 .tl__lane { position: relative; border-radius: 8px; background: var(--panel-2); overflow: hidden; }
 .tl__lane--video { height: 62px; }
 .tl__lane--audio { height: 40px; margin-top: 6px; }

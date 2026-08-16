@@ -36,8 +36,10 @@ export default function Timeline({
   onSeek, onOpen, onAdd,
 }) {
   const trackRef = useRef(null);
-  const movedRef = useRef(false); // true once a scrub-drag moved, to suppress click
+  const downRef = useRef(null); // pointer-down position, to tell a clip tap from a drag
 
+  // Scrub the playhead. Reference the track's box for x/width; the ruler and
+  // audio lane are horizontally aligned with it, so this works for all three.
   const seekAt = useCallback((clientX) => {
     const el = trackRef.current;
     if (!el || !duration) return;
@@ -46,10 +48,9 @@ export default function Timeline({
     onSeek((x / r.width) * duration);
   }, [duration, onSeek]);
 
-  const onPointerDown = useCallback((e) => {
-    movedRef.current = false;
+  const onScrubDown = useCallback((e) => {
     seekAt(e.clientX);
-    const move = (ev) => { movedRef.current = true; seekAt(ev.clientX); };
+    const move = (ev) => seekAt(ev.clientX);
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -57,6 +58,12 @@ export default function Timeline({
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   }, [seekAt]);
+
+  // A clip opens the inspector only on a clean tap, not a drag/scroll.
+  const onClipClick = useCallback((name, e) => {
+    const d = downRef.current;
+    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6 && onOpen) onOpen(name);
+  }, [onOpen]);
 
   const step = duration > 180 ? 30 : duration > 90 ? 15 : duration > 30 ? 10 : 5;
   const ticks = [];
@@ -75,7 +82,7 @@ export default function Timeline({
     <div className="tl" style={rowMin ? { "--tl-min": `${rowMin}px` } : undefined}>
       <div className="tl__row tl__row--ruler">
         <div className="tl__gutter" aria-hidden="true" />
-        <div className="tl__ruler">
+        <div className="tl__ruler tl__scrub" onPointerDown={onScrubDown} title="Drag to move the playhead">
           {ticks.map((t) => (
             <span className="tl__tick" key={t} style={{ left: pct(t) }}>
               <i className="tl__tickline" />
@@ -117,7 +124,7 @@ export default function Timeline({
           <span className="tl__tag tl__tag--audio">A</span>
         </div>
 
-        <div className="tl__track" ref={trackRef} onPointerDown={onPointerDown}>
+        <div className="tl__track" ref={trackRef}>
           <div className="tl__lane tl__lane--video">
             {clips.map((c) => {
               const style = { left: pct(c.start), width: pct(c.duration) };
@@ -153,7 +160,8 @@ export default function Timeline({
                   className={cls.join(" ")}
                   style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
                   title={`${el && el.fileName ? el.fileName + " · " : ""}${label(c.start)} · ${c.duration.toFixed(1)}s — click to preview / replace`}
-                  onClick={() => { if (!movedRef.current) onOpen && onOpen(c.name); }}
+                  onPointerDown={(e) => { downRef.current = { x: e.clientX, y: e.clientY }; }}
+                  onClick={(e) => onClipClick(c.name, e)}
                 >
                   <span className="clip__meta">{c.duration.toFixed(1)}s</span>
                   {fname && <span className="clip__name">{fname}</span>}
@@ -162,7 +170,7 @@ export default function Timeline({
             })}
           </div>
 
-          <div className="tl__lane tl__lane--audio">
+          <div className="tl__lane tl__lane--audio tl__scrub" onPointerDown={onScrubDown}>
             <Waveform peaks={peaks} />
           </div>
 
