@@ -95,9 +95,9 @@ Everything runs on your Mac — nothing is uploaded.
 `);
 
   console.log("[7/7] Zipping...");
-  rmSync(DIST, { recursive: true, force: true });
-  mkdirSync(DIST, { recursive: true });
+  mkdirSync(DIST, { recursive: true }); // keep dist/ — only overwrite our own zip
   const zip = path.join(DIST, `AutoEditor-mac-${ARCH}.zip`);
+  rmSync(zip, { force: true }); // ditto won't overwrite an existing archive
   // ditto preserves the executable bits and code signatures inside the zip.
   run(`ditto -c -k --sequesterRsrc --keepParent "${OUT}" "${zip}"`);
   rmSync(STAGE, { recursive: true, force: true });

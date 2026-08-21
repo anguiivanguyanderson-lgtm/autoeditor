@@ -119,9 +119,9 @@ async function main() {
   writeFileSync(path.join(OUT, "READ ME FIRST.txt"), README);
 
   console.log("[5/5] Zipping...");
-  rmSync(DIST, { recursive: true, force: true });
-  mkdirSync(DIST, { recursive: true });
+  mkdirSync(DIST, { recursive: true }); // keep dist/ — only overwrite our own zip
   const zip = path.join(DIST, "AutoEditor-android.zip");
+  rmSync(zip, { force: true });
   execSync(
     `powershell -NoProfile -Command "Compress-Archive -Path '${OUT}' -DestinationPath '${zip}' -CompressionLevel Optimal -Force"`,
     { stdio: "inherit" },

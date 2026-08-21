@@ -70,9 +70,9 @@ async function main() {
   copyFileSync(path.join(ROOT, "dist-assets", "READ ME FIRST.txt"), path.join(OUT, "READ ME FIRST.txt"));
 
   console.log("[7/7] Zipping...");
-  rmSync(DIST, { recursive: true, force: true });
-  mkdirSync(DIST, { recursive: true });
+  mkdirSync(DIST, { recursive: true }); // keep dist/ — only overwrite our own zip
   const zip = path.join(DIST, "AutoEditor.zip");
+  rmSync(zip, { force: true });
   execFileSync("powershell", [
     "-NoProfile", "-Command",
     `Compress-Archive -Path '${OUT}' -DestinationPath '${zip}' -CompressionLevel Optimal -Force`,
