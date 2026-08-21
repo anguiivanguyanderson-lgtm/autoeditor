@@ -44,12 +44,20 @@ export FRONTEND_DIR="$(pwd)/out"
 export OPEN_BROWSER=0
 export PORT="\${PORT:-4000}"
 
-# Keep the phone usable during a render: run ffmpeg at low priority and cap it to
-# about half the cores so it doesn't peg the CPU or overheat. Override by setting
-# RENDER_THREADS / RENDER_NICE yourself before running (RENDER_THREADS=0 = all cores).
+# Keep the phone usable during a render:
+#  - RENDER_THREADS caps CPU cores used for filtering/software-encoding
+#    (default ~half the cores; RENDER_THREADS=0 = all cores).
+#  - RENDER_NICE runs ffmpeg at low OS priority so foreground apps get CPU first.
+#  - RENDER_ZOOM_SS lowers the Ken Burns supersample (biggest CPU/RAM cost of
+#    zoom); 2 keeps the phone responsive, 3 is smoothest but heaviest.
+# The app also auto-tries the phone's hardware video encoder (h264_mediacodec,
+# the same silicon CapCut/KineMaster use) and only falls back to CPU libx264 if
+# it isn't available. Force CPU with RENDER_ENCODER=libx264 if a render looks bad.
 CORES="\$(nproc 2>/dev/null || echo 4)"
 export RENDER_THREADS="\${RENDER_THREADS:-\$(( CORES > 2 ? (CORES + 1) / 2 : 1 ))}"
 export RENDER_NICE="\${RENDER_NICE:-15}"
+export RENDER_ZOOM_SS="\${RENDER_ZOOM_SS:-2}"
+echo "Render load: RENDER_THREADS=\$RENDER_THREADS RENDER_NICE=\$RENDER_NICE RENDER_ZOOM_SS=\$RENDER_ZOOM_SS (hardware encoder auto-detected)"
 
 # Finished videos are auto-saved here (so you can close the browser after
 # hitting Render and the file is still written). Prefer shared storage so the

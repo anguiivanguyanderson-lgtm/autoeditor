@@ -40,13 +40,16 @@ function stillStream(i, width, height, fps) {
 
 // A Ken Burns zoom stream: one image frame expanded to `frames` output frames by
 // zoompan (d=frames — the smooth form; looping with d=1 is what causes the shake).
-// The source is supersampled 3x first so zoompan's integer crop rounding stays
+// The source is supersampled first so zoompan's integer crop rounding stays
 // sub-pixel and doesn't jitter. Only zoom clips pay this cost, not the whole encode.
+// The supersample factor drives most of zoom's CPU/RAM cost, so it's tunable:
+// RENDER_ZOOM_SS (default 3 = smoothest; phones set 2 to stay responsive).
+const ZOOM_SS = Math.max(1, Math.min(3, parseFloat(process.env.RENDER_ZOOM_SS || "3")));
 function zoomStream(i, W, H, fps, motionType, amount, frames) {
   const A = amount.toFixed(4);
   const FR = Math.max(2, frames);
   const z = motionType === "zoomout" ? `1+${A}-(on/${FR - 1})*${A}` : `1+(on/${FR - 1})*${A}`;
-  const M = 3;
+  const M = ZOOM_SS;
   const PW = Math.round(W * M), PH = Math.round(H * M);
   const pre = `[${i}:v]scale=${PW}:${PH}:force_original_aspect_ratio=decrease,` +
     `pad=${PW}:${PH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
@@ -73,6 +76,9 @@ function videoCodecArgs(encoder) {
     case "h264_qsv":   return ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23"];
     case "h264_nvenc": return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "23", "-pix_fmt", "yuv420p"];
     case "h264_amf":   return ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23", "-qp_b", "23"];
+    // Android's on-device hardware encoder (same silicon CapCut/KineMaster use).
+    // It takes a bitrate, not -crf, and negotiates its own input pixel format.
+    case "h264_mediacodec": return ["-c:v", "h264_mediacodec", "-b:v", "8M"];
     default:           return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"];
   }
 }
@@ -167,7 +173,12 @@ export function buildRenderPlan(spec, io) {
 // Probe which H.264 encoder to use: try each hardware encoder with a tiny test
 // encode and pick the first that actually runs; fall back to CPU libx264. This
 // keeps rendering working on any machine (no GPU, old drivers, etc.).
-const ENCODER_CANDIDATES = ["h264_nvenc", "h264_qsv", "h264_amf"];
+// On Android (Termux node reports platform "android") try the on-device
+// MediaCodec hardware encoder first — that's what keeps CapCut/KineMaster from
+// pegging the CPU. Desktops keep their GPU encoders.
+const ENCODER_CANDIDATES = process.platform === "android"
+  ? ["h264_mediacodec"]
+  : ["h264_nvenc", "h264_qsv", "h264_amf"];
 
 function testEncoder(enc) {
   // Encode a few real frames to a temp MP4 (more representative than -f null,
@@ -185,6 +196,9 @@ function testEncoder(enc) {
 }
 
 export async function detectEncoder() {
+  // Escape hatch: force a specific encoder (e.g. RENDER_ENCODER=libx264 if the
+  // hardware one produces a bad/failed render). Skips probing entirely.
+  if (process.env.RENDER_ENCODER) return process.env.RENDER_ENCODER;
   for (const enc of ENCODER_CANDIDATES) {
     // eslint-disable-next-line no-await-in-loop
     if (await testEncoder(enc)) return enc;

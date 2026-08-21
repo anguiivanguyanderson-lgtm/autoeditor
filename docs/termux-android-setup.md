@@ -117,17 +117,28 @@ A second render is refused while one is running (phones can't do two at once) �
 wait for the current one to finish, or Cancel it first.
 
 ### The phone stays usable during a render
-Renders can be CPU-heavy (transitions and zoom especially). To keep the phone
-responsive, `start.sh` runs ffmpeg at **low priority** (`RENDER_NICE=15`) and caps
-it to **about half the cores** (`RENDER_THREADS`) so it won't peg the CPU or
-overheat. Foreground apps always get CPU first, so scrolling/typing stays smooth;
-the render just uses spare capacity (fastest when the screen is off).
+Apps like CapCut/KineMaster stay smooth because they encode video on the phone's
+**dedicated hardware encoder** (MediaCodec), not the CPU. AutoEditor now does the
+same: it auto-detects and uses **`h264_mediacodec`** (the on-device hardware
+encoder) and only falls back to CPU `libx264` if it isn't available. `start.sh`
+prints which settings are active on launch (`Render load: …`).
 
-Tune it before running if you like:
+The zoom/transition *math* still runs on the CPU, so `start.sh` also:
+- runs ffmpeg at **low priority** (`RENDER_NICE=15`) so foreground apps get CPU first,
+- caps it to **about half the cores** (`RENDER_THREADS`) so it won't peg the CPU / overheat,
+- lowers the Ken Burns **supersample** (`RENDER_ZOOM_SS=2`) — zoom's single biggest
+  CPU/RAM cost — so zoomed renders don't make the phone crawl (3 is smoothest but heaviest).
+
+Tune any of it before running:
 ```bash
-RENDER_THREADS=0 RENDER_NICE=0 bash start.sh   # full speed (may make the phone sluggish)
-RENDER_THREADS=2 RENDER_NICE=19 bash start.sh  # gentlest (slowest, phone stays snappy)
+RENDER_THREADS=0 RENDER_NICE=0 RENDER_ZOOM_SS=3 bash start.sh   # full speed / smoothest (phone may get sluggish)
+RENDER_THREADS=2 RENDER_NICE=19 RENDER_ZOOM_SS=1 bash start.sh  # gentlest (slowest, phone stays snappy)
+RENDER_ENCODER=libx264 bash start.sh                           # force CPU encode if a hardware render looks wrong
 ```
+
+If a rendered video ever looks corrupt or the render fails right after starting,
+the hardware encoder on that phone is misbehaving — rerun with
+`RENDER_ENCODER=libx264 bash start.sh` to force the reliable CPU path.
 
 ---
 
