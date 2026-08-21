@@ -80,6 +80,11 @@ else
   export OUTPUT_DIR="$HOME/AutoEditor-output"
 fi
 mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
+# Resolve the Termux storage symlink to the real path (/storage/emulated/0/...)
+# so logs show the folder the user actually sees in Files/Gallery, not the
+# confusing /data/data/com.termux/.../storage/downloads symlink path.
+REAL_OUT="\$(cd "\$OUTPUT_DIR" 2>/dev/null && pwd -P)"
+[ -n "\$REAL_OUT" ] && export OUTPUT_DIR="\$REAL_OUT"
 
 # Keep the CPU running during long renders even if the screen turns off.
 termux-wake-lock 2>/dev/null || true
