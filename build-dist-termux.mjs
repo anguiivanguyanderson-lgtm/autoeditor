@@ -62,6 +62,7 @@ echo "AutoEditor is running."
 echo "Open  http://localhost:\${PORT}  in Chrome/Firefox on this phone."
 echo "Finished videos are saved to:  $OUTPUT_DIR"
 echo "You can close the browser after hitting Render — it keeps rendering and saves there."
+echo "To check progress after closing the browser: switch back to Termux (it prints Rendering... %)."
 echo "Keep this Termux session open. Press Ctrl+C to stop."
 node bundle.cjs
 `;

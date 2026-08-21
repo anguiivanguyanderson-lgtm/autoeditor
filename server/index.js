@@ -96,6 +96,14 @@ function endListeners(job) {
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Check in-flight renders without the browser, e.g. from another Termux
+// session:  curl localhost:4000/status
+app.get("/status", (_req, res) => {
+  res.json([...jobs.entries()].map(([id, j]) => ({
+    id, status: j.status, percent: Math.round(j.progress * 100),
+  })));
+});
+
 app.post("/render", newJob, upload.any(), async (req, res) => {
   try {
     const spec = JSON.parse(req.body.spec);
@@ -107,8 +115,10 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
     const job = {
       dir: req.jobDir, proc: null, total: 0,
       progress: 0, status: "running", outPath: null, error: null, listeners: new Set(),
+      _loggedPct: -5, _notifiedPct: -10,
     };
     jobs.set(req.jobId, job);
+    console.log("Render started — you can close the browser; it keeps rendering here.");
 
     // Render with the chosen encoder; if a hardware encode fails on this machine,
     // retry once with CPU libx264 so it always produces a valid video.
@@ -121,6 +131,14 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
       const { proc, done } = runRender(req.jobDir, plan.args, plan.total, (p) => {
         job.progress = p;
         broadcast(job, { progress: p });
+        // Also surface progress where you can see it without the browser: the
+        // Termux console, and (if Termux:API is installed) an ongoing notification.
+        const pct = Math.floor(p * 100);
+        if (pct >= job._loggedPct + 5) { job._loggedPct = pct; console.log(`Rendering… ${pct}%`); }
+        if (pct >= job._notifiedPct + 10) {
+          job._notifiedPct = pct;
+          termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor rendering", "--content", `${pct}%`, "--ongoing", "--alert-once"]);
+        }
       });
       job.proc = proc;
 
@@ -135,7 +153,7 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
             saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}.mp4`);
             fssync.copyFileSync(outPath, saved);
             console.log("Saved video to " + saved);
-            notify("AutoEditor — video saved", saved);
+            termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor — video saved", "--content", saved]);
           } catch (e) { console.warn("Could not save to OUTPUT_DIR: " + e.message); saved = null; }
         }
         job.outPath = saved || outPath; // serve the saved copy if we made one
@@ -153,6 +171,8 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
           return;
         }
         job.status = "error"; job.error = String(err.message || err);
+        console.error("Render failed: " + job.error.split("\n")[0]);
+        termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor — render failed", "--content", job.error.split("\n")[0]]);
         broadcast(job, { error: job.error });
         endListeners(job);
       });
@@ -213,11 +233,10 @@ if (fssync.existsSync(FRONTEND_DIR)) app.use(express.static(FRONTEND_DIR));
 
 // Open the user's default browser once the server is up (only when launched via
 // start.bat, which sets OPEN_BROWSER=1 — never during tests).
-// Best-effort Android notification (Termux:API). No-op if the command is absent.
-function notify(title, content) {
-  try {
-    spawn("termux-notification", ["--title", title, "--content", content], { detached: true, stdio: "ignore" }).unref();
-  } catch { /* not available */ }
+// Best-effort Android notification via Termux:API. No-op if unavailable.
+function termuxNotify(args) {
+  try { spawn("termux-notification", args, { detached: true, stdio: "ignore" }).unref(); }
+  catch { /* not available */ }
 }
 
 function openBrowser(url) {
