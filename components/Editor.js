@@ -47,6 +47,10 @@ export default function Editor({
   const replaceInputRef = useRef(null);
   const pending = useRef(null); // gap-fill target name
   const trimEndRef = useRef(exportDuration);
+  const vidRefs = useRef({});     // clip name -> offscreen <video> for live preview
+  const drawRef = useRef(null);   // latest draw fn (so video 'seeked' can redraw)
+  const timeRef = useRef(0);      // latest playhead time
+  const modalVideoRef = useRef(null); // the trim scrubber <video> in the inspector
   useEffect(() => { trimEndRef.current = exportDuration; }, [exportDuration]);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -116,6 +120,36 @@ export default function Editor({
     e.target.value = "";
   }, [onCaptionFile]);
 
+  // Keep one offscreen <video> per video clip so the preview can draw live frames
+  // (not just the poster). Created/torn down as clips come and go.
+  useEffect(() => {
+    const map = vidRefs.current;
+    for (const [name, info] of Object.entries(videoInfoByName)) {
+      if (!map[name] && info && info.url) {
+        const v = document.createElement("video");
+        v.src = info.url; v.muted = true; v.playsInline = true; v.preload = "auto";
+        const redraw = () => { if (drawRef.current) drawRef.current(timeRef.current); };
+        v.addEventListener("seeked", redraw);
+        v.addEventListener("loadeddata", redraw);
+        map[name] = v;
+      }
+    }
+    for (const name of Object.keys(map)) {
+      if (!videoInfoByName[name]) { try { map[name].pause(); } catch { /* ignore */ } delete map[name]; }
+    }
+  }, [videoInfoByName]);
+
+  // Where in the source video to show for a clip at playhead t: the trim in-point
+  // plus elapsed × speed (fast-forward). Mirrors the render math in page.js.
+  const videoParams = useCallback((name, slotDur) => {
+    const info = videoInfoByName[name];
+    if (!info) return null;
+    const mode = fitByName[name] || "fit";
+    const dur = info.duration || 0;
+    if (mode === "fit" && slotDur > 0 && dur > slotDur + 0.05) return { trimStart: 0, speed: dur / slotDur };
+    return { trimStart: trimByName[name] || 0, speed: 1 };
+  }, [videoInfoByName, fitByName, trimByName]);
+
   const draw = useCallback((t) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -124,6 +158,7 @@ export default function Editor({
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
+    let activeVideo = null; // clip name whose video should be playing this frame
 
     // Per-clip Ken Burns zoom at time tt (gaps never zoom). Progress is clamped so
     // an outgoing image keeps its end-of-clip zoom through the transition.
@@ -153,13 +188,40 @@ export default function Editor({
         );
         ctx.globalAlpha = 1;
       } else {
-        const img = imageEls[clip.name];
-        if (img) {
-          const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight) * scaleAt(idx, t);
-          const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
-          ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+        // Draw a live video frame for video clips (synced to the playhead), else
+        // the poster/image. Only the active clip's video plays; others pause.
+        let drawable = imageEls[clip.name];
+        const vinfo = videoInfoByName[clip.name];
+        if (vinfo) {
+          const v = vidRefs.current[clip.name];
+          const pr = videoParams(clip.name, clip.duration);
+          if (v && pr) {
+            const srcTime = Math.min(vinfo.duration || 0, Math.max(0, pr.trimStart + (t - clip.start) * pr.speed));
+            if (playing) {
+              v.playbackRate = Math.min(16, Math.max(0.0625, pr.speed));
+              if (v.paused) { try { v.currentTime = srcTime; } catch { /* ignore */ } v.play().catch(() => {}); }
+              else if (Math.abs(v.currentTime - srcTime) > 0.35) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
+            } else {
+              if (!v.paused) v.pause();
+              if (Math.abs(v.currentTime - srcTime) > 0.04) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
+            }
+            if (v.readyState >= 2) drawable = v;
+          }
+        }
+        activeVideo = vinfo ? clip.name : null;
+        const dw = (drawable && (drawable.videoWidth || drawable.naturalWidth)) || 0;
+        const dh = (drawable && (drawable.videoHeight || drawable.naturalHeight)) || 0;
+        if (drawable && dw && dh) {
+          const scale = Math.min(W / dw, H / dh) * scaleAt(idx, t);
+          const w = dw * scale, h = dh * scale;
+          ctx.drawImage(drawable, (W - w) / 2, (H - h) / 2, w, h);
         }
       }
+    }
+
+    // Only the clip under the playhead plays; pause every other clip's video.
+    for (const [nm, v] of Object.entries(vidRefs.current)) {
+      if (nm !== activeVideo && !v.paused) { try { v.pause(); } catch { /* ignore */ } }
     }
 
     // Captions burn in before the fades, so the fade dims them too.
@@ -179,9 +241,11 @@ export default function Editor({
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
   }, [clips, imageEls, transitionsByName, transitionDuration, motionByName, motionAmount,
-      fadeIn, fadeOut, duration, exportDuration,
+      fadeIn, fadeOut, duration, exportDuration, playing, videoInfoByName, videoParams,
       captionsOn, captionCues, captionStyle, captionSize]);
 
+  useEffect(() => { drawRef.current = draw; }, [draw]);
+  useEffect(() => { timeRef.current = time; }, [time]);
   useEffect(() => { draw(time); }, [time, draw]);
   useEffect(() => { setTime(0); }, [audioUrl]);
 
@@ -662,16 +726,40 @@ export default function Editor({
                   {(!longer || fitMode === "trim") && (
                     <div className="modal__trim">
                       <span className="modal__motion-label">
-                        Trim — start point
+                        Trim — play/scrub to the moment you want, then “Set start”
                         {vinfo.duration ? ` · clip ${vinfo.duration.toFixed(1)}s, slot ${insClip.duration.toFixed(1)}s` : ""}
                       </span>
+                      {vinfo.url && (
+                        <video
+                          ref={modalVideoRef} src={vinfo.url} className="modal__trimvid"
+                          controls muted playsInline preload="metadata"
+                          onLoadedMetadata={(e) => { try { e.currentTarget.currentTime = inPt; } catch { /* ignore */ } }}
+                        />
+                      )}
                       <div className="modal__slider">
                         <input
-                          type="range" min={0} max={Math.max(0.1, vinfo.duration || 0)} step={0.1}
+                          type="range" min={0} max={Math.max(0.1, vinfo.duration || 0)} step={0.05}
                           value={Math.min(inPt, Math.max(0.1, vinfo.duration || 0))}
-                          onChange={(e) => setTrim && setTrim(inspect, +e.target.value)}
+                          onChange={(e) => {
+                            const val = +e.target.value;
+                            if (setTrim) setTrim(inspect, val);
+                            if (modalVideoRef.current) { try { modalVideoRef.current.currentTime = val; } catch { /* ignore */ } }
+                          }}
                         />
                         <span className="trdur__val">{inPt.toFixed(1)}s</span>
+                      </div>
+                      <div className="modal__trimbtns">
+                        <button
+                          type="button" className="mbtn"
+                          onClick={() => {
+                            const v = modalVideoRef.current; if (!v) return;
+                            if (v.paused) v.play().catch(() => {}); else v.pause();
+                          }}
+                        >Play / pause</button>
+                        <button
+                          type="button" className="mbtn mbtn--primary"
+                          onClick={() => { const v = modalVideoRef.current; if (v && setTrim) setTrim(inspect, +v.currentTime.toFixed(2)); }}
+                        >Set start = current frame</button>
                       </div>
                       {vinfo.duration > 0 && insClip.duration > vinfo.duration - inPt && (
                         <span className="modal__hint">Clip is shorter than its slot — the last frame holds to fill it.</span>
