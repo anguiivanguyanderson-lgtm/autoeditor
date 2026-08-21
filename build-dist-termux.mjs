@@ -24,6 +24,10 @@ const START_SH = `#!/usr/bin/env bash
 # AutoEditor for Android (Termux).  Run:  bash start.sh
 cd "$(dirname "$0")"
 
+# Windows-made zips drop Unix permissions, which makes the extracted folders
+# non-searchable and the server hit EACCES. Restore read + dir-execute here.
+chmod -R u+rwX . 2>/dev/null || true
+
 # First run: auto-install Node.js + ffmpeg if they're missing (needs internet).
 if ! command -v node >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
   echo "First run: installing Node.js and ffmpeg (one-time, needs internet)..."
