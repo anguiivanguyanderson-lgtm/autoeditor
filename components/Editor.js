@@ -727,49 +727,44 @@ export default function Editor({
                         : <span className="modal__hint">Plays at 1× — set a start point below; the rest is cut off.</span>}
                     </div>
                   )}
-                  {(!longer || fitMode === "trim") && (
-                    <div className="modal__trim">
-                      <span className="modal__motion-label">
-                        Trim — play/scrub to the moment you want, then “Set start”
-                        {vinfo.duration ? ` · clip ${vinfo.duration.toFixed(1)}s, slot ${insClip.duration.toFixed(1)}s` : ""}
-                      </span>
-                      {vinfo.url && (
-                        <video
-                          ref={modalVideoRef} src={vinfo.url} className="modal__trimvid"
-                          controls muted playsInline preload="metadata"
-                          onLoadedMetadata={(e) => { try { e.currentTarget.currentTime = inPt; } catch { /* ignore */ } }}
-                        />
-                      )}
-                      <div className="modal__slider">
-                        <input
-                          type="range" min={0} max={Math.max(0.1, vinfo.duration || 0)} step={0.05}
-                          value={Math.min(inPt, Math.max(0.1, vinfo.duration || 0))}
-                          onChange={(e) => {
-                            const val = +e.target.value;
-                            if (setTrim) setTrim(inspect, val);
-                            if (modalVideoRef.current) { try { modalVideoRef.current.currentTime = val; } catch { /* ignore */ } }
-                          }}
-                        />
-                        <span className="trdur__val">{inPt.toFixed(1)}s</span>
+                  {(!longer || fitMode === "trim") && (() => {
+                    const dur = vinfo.duration || 0;
+                    const remain = Math.max(0, dur - inPt);        // footage left from the start point
+                    const playLen = Math.min(insClip.duration, remain); // real-time footage shown
+                    const holdFor = Math.max(0, insClip.duration - remain); // seconds the last frame holds
+                    return (
+                      <div className="modal__trim">
+                        <span className="modal__motion-label">Trim — drag to set where the clip starts</span>
+                        {vinfo.url && (
+                          <video
+                            ref={modalVideoRef} src={vinfo.url} className="modal__trimvid"
+                            muted playsInline preload="metadata"
+                            onLoadedMetadata={(e) => { try { e.currentTarget.currentTime = inPt; } catch { /* ignore */ } }}
+                          />
+                        )}
+                        <div className="modal__slider">
+                          <input
+                            type="range" min={0} max={Math.max(0.1, dur)} step={0.05}
+                            value={Math.min(inPt, Math.max(0.1, dur))}
+                            onChange={(e) => {
+                              const val = +e.target.value;
+                              if (setTrim) setTrim(inspect, val);
+                              if (modalVideoRef.current) { try { modalVideoRef.current.currentTime = val; } catch { /* ignore */ } }
+                            }}
+                          />
+                          <span className="trdur__val">{inPt.toFixed(1)}s</span>
+                        </div>
+                        <span className="modal__hint">
+                          Starts at {inPt.toFixed(1)}s of {dur.toFixed(1)}s · plays {playLen.toFixed(1)}s in a {insClip.duration.toFixed(1)}s slot
+                        </span>
+                        {holdFor > 0.05 && (
+                          <span className="modal__hint modal__hint--warn">
+                            Only {remain.toFixed(1)}s of footage left — the last frame holds for {holdFor.toFixed(1)}s to fill the slot.
+                          </span>
+                        )}
                       </div>
-                      <div className="modal__trimbtns">
-                        <button
-                          type="button" className="mbtn"
-                          onClick={() => {
-                            const v = modalVideoRef.current; if (!v) return;
-                            if (v.paused) v.play().catch(() => {}); else v.pause();
-                          }}
-                        >Play / pause</button>
-                        <button
-                          type="button" className="mbtn mbtn--primary"
-                          onClick={() => { const v = modalVideoRef.current; if (v && setTrim) setTrim(inspect, +v.currentTime.toFixed(2)); }}
-                        >Set start = current frame</button>
-                      </div>
-                      {vinfo.duration > 0 && insClip.duration > vinfo.duration - inPt && (
-                        <span className="modal__hint">Clip is shorter than its slot — the last frame holds to fill it.</span>
-                      )}
-                    </div>
-                  )}
+                    );
+                  })()}
                   <div className="modal__vol">
                     <span className="modal__motion-label">Clip audio volume</span>
                     <div className="modal__slider">
