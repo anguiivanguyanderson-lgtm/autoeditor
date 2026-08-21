@@ -59,10 +59,22 @@ export RENDER_NICE="\${RENDER_NICE:-15}"
 export RENDER_ZOOM_SS="\${RENDER_ZOOM_SS:-2}"
 echo "Render load: RENDER_THREADS=\$RENDER_THREADS RENDER_NICE=\$RENDER_NICE RENDER_ZOOM_SS=\$RENDER_ZOOM_SS (hardware encoder auto-detected)"
 
-# Finished videos are auto-saved here (so you can close the browser after
-# hitting Render and the file is still written). Prefer shared storage so the
-# phone's Gallery/Files can see it.
-if [ -d "$HOME/storage/shared" ]; then
+# Make sure Termux can reach shared storage (Download etc.). If it isn't set up
+# yet, run termux-setup-storage — it pops a one-time Android permission dialog;
+# tap Allow. Without this, saves land in Termux-private storage that file apps
+# can't open.
+if [ ! -d "$HOME/storage" ]; then
+  echo "Setting up storage access — tap Allow on the permission dialog..."
+  termux-setup-storage 2>/dev/null || true
+  sleep 3
+fi
+
+# Auto-save finished videos where the user can actually find them: the phone's
+# Download folder (visible in Files, Gallery, and every file manager). Fall back
+# to shared-storage root, then Termux-private storage as a last resort.
+if [ -d "$HOME/storage/downloads" ]; then
+  export OUTPUT_DIR="$HOME/storage/downloads/AutoEditor"
+elif [ -d "$HOME/storage/shared" ]; then
   export OUTPUT_DIR="$HOME/storage/shared/AutoEditor"
 else
   export OUTPUT_DIR="$HOME/AutoEditor-output"

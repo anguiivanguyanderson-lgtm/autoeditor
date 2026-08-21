@@ -92,14 +92,17 @@ filename. If a chooser ever opens Photos, back out and pick **Files**.
 The render runs in the Termux server, not the browser. After you tap **Render**
 you can **close the browser or lock the screen** — it keeps rendering.
 
-The finished MP4 is **auto-saved** to:
+The finished MP4 is **auto-saved** to your phone's **Download** folder:
 
 ```
-~/storage/shared/AutoEditor/        →  /storage/emulated/0/AutoEditor/
+~/storage/downloads/AutoEditor/     →  /storage/emulated/0/Download/AutoEditor/
 ```
 
-(falls back to `~/AutoEditor-output` if you skipped `termux-setup-storage`). It
-shows up in your **Gallery/Files** as `autoeditor-<timestamp>-<id>.mp4`.
+Open it from any file manager under **Download › AutoEditor**, or from your
+**Gallery/Files** — it appears as `autoeditor-<timestamp>-<id>.mp4`. If storage
+access isn't set up yet, `start.sh` runs `termux-setup-storage` for you on launch
+(tap **Allow**); only if you decline does it fall back to Termux-private storage
+(`~/AutoEditor-output`), which file apps can't browse.
 
 ### Seeing progress after the browser is closed
 Two ways:
@@ -150,7 +153,7 @@ the hardware encoder on that phone is misbehaving — rerun with
 | Image timestamp shows a huge number (e.g. `10000689:15`) | You added it via **Gallery/Photos**. Re-add via **Files**. |
 | `node not found` / `ffmpeg not found` | Needs internet on first run. Or install manually: `pkg install -y nodejs ffmpeg`. |
 | `unzip: command not found` | `pkg install -y unzip`. |
-| Video didn't save to Gallery | Run `termux-setup-storage` once, then it saves to `~/storage/shared/AutoEditor`. |
+| Video saved somewhere file apps can't open (`/data/data/...`) | Storage access wasn't granted. Run `termux-setup-storage` (tap Allow), then restart `bash start.sh` — it saves to **Download/AutoEditor**. |
 
 ---
 
