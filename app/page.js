@@ -6,7 +6,7 @@ import { buildTimeline, trimClips, LEAD_IN } from "../lib/timeline";
 import { resolveDimensions } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
-import { renderVideo, cancelRender } from "../lib/serverRender";
+import { renderVideo, cancelRender, getActiveRender, reconnectRender } from "../lib/serverRender";
 import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
@@ -77,6 +77,9 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [outUrl, setOutUrl] = useState(null);
   const [error, setError] = useState(null);
+  // A render that was already running when this tab loaded (e.g. reopened after
+  // closing the browser mid-render). Shown as a banner and reconnected to.
+  const [resume, setResume] = useState(null); // { busy, progress, url, error }
   const idRef = useRef(0);
   const nextId = () => `s${idRef.current++}`;
 
@@ -182,6 +185,25 @@ export default function Home() {
   );
   const captionCues = captionParse.cues;
   const captionError = captionParse.error;
+
+  // On load, reconnect to a render that's still running on the server.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const active = await getActiveRender();
+      if (!alive || !active) return;
+      setResume({ busy: true, progress: (active.percent || 0) / 100, url: null, error: null });
+      try {
+        const blob = await reconnectRender(active.jobId, (p) => {
+          if (alive) setResume((r) => (r ? { ...r, progress: p } : r));
+        });
+        if (alive) setResume({ busy: false, progress: 1, url: URL.createObjectURL(blob), error: null });
+      } catch (e) {
+        if (alive) setResume({ busy: false, progress: 0, url: null, error: e.message || String(e) });
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const setTransition = useCallback((name, type) => {
     commitDoc((d) => ({ ...d, transitionsByName: { ...d.transitionsByName, [name]: type } }));
@@ -336,6 +358,27 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {resume && (
+        <div className={`resume${resume.url ? " resume--done" : resume.error ? " resume--bad" : ""}`}>
+          {resume.busy && (
+            <span className="resume__msg">
+              <span className="resume__spin" aria-hidden="true" />
+              A render is still running… {Math.round(resume.progress * 100)}%
+            </span>
+          )}
+          {resume.url && (
+            <span className="resume__msg">
+              Your video finished rendering.
+              <a className="resume__dl" href={resume.url} download="autoeditor.mp4">Download</a>
+            </span>
+          )}
+          {resume.error && <span className="resume__msg">Last render failed: {resume.error}</span>}
+          {!resume.busy && (
+            <button className="resume__x" onClick={() => setResume(null)} aria-label="Dismiss">✕</button>
+          )}
+        </div>
+      )}
 
       <div className="content">
       {!showEditor ? (

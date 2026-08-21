@@ -45,6 +45,8 @@ fssync.mkdirSync(TMP, { recursive: true });
 for (const d of fssync.readdirSync(TMP)) rmrf(path.join(TMP, d));
 
 const jobs = new Map(); // id -> { dir, proc, total, progress, status, outPath, error, listeners:Set }
+let activeJobId = null;  // the single render allowed to run at a time (phones can't do two)
+const clearActive = (id) => { if (activeJobId === id) activeJobId = null; };
 
 // Pick the fastest working H.264 encoder once at startup (hardware if available,
 // else CPU libx264). Renders still fall back per-job if a hardware encode fails.
@@ -104,7 +106,24 @@ app.get("/status", (_req, res) => {
   })));
 });
 
-app.post("/render", newJob, upload.any(), async (req, res) => {
+// The one render currently running (for the UI to reconnect to after a reload).
+app.get("/active", (_req, res) => {
+  const j = activeJobId && jobs.get(activeJobId);
+  if (j && j.status === "running") return res.json({ jobId: activeJobId, percent: Math.round(j.progress * 100) });
+  res.json({ jobId: null });
+});
+
+// Refuse a second render while one is running — phones can't handle two.
+function oneAtATime(req, res, next) {
+  const cur = activeJobId && jobs.get(activeJobId);
+  if (cur && cur.status === "running") {
+    rmrf(req.jobDir);
+    return res.status(409).json({ error: "A render is already in progress.", jobId: activeJobId, percent: Math.round(cur.progress * 100) });
+  }
+  next();
+}
+
+app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
   try {
     const spec = JSON.parse(req.body.spec);
     const fileMap = {};
@@ -118,6 +137,7 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
       _loggedPct: -5, _notifiedPct: -10,
     };
     jobs.set(req.jobId, job);
+    activeJobId = req.jobId;
     console.log("Render started — you can close the browser; it keeps rendering here.");
 
     // Render with the chosen encoder; if a hardware encode fails on this machine,
@@ -150,7 +170,7 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
           try {
             fssync.mkdirSync(OUTPUT_DIR, { recursive: true });
             const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-            saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}.mp4`);
+            saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}-${req.jobId.slice(0, 6)}.mp4`);
             fssync.copyFileSync(outPath, saved);
             console.log("Saved video to " + saved);
             termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor — video saved", "--content", saved]);
@@ -161,6 +181,7 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
         broadcast(job, { progress: 1 });
         broadcast(job, { done: true, saved });
         endListeners(job);
+        clearActive(req.jobId);
       }).catch((err) => {
         if (job.status === "cancelled") return;
         if (encoder !== "libx264") {
@@ -175,6 +196,7 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
         termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor — render failed", "--content", job.error.split("\n")[0]]);
         broadcast(job, { error: job.error });
         endListeners(job);
+        clearActive(req.jobId);
       });
     };
     launch(ENCODER);
@@ -224,6 +246,7 @@ app.post("/render/:id/cancel", (req, res) => {
   endListeners(job);
   rmrf(job.dir);
   jobs.delete(req.params.id);
+  clearActive(req.params.id);
   res.json({ ok: true });
 });
 
