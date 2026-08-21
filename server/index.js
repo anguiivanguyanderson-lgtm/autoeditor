@@ -1,0 +1,212 @@
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import fssync from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { buildRenderPlan, writeInputs, runRender, detectEncoder } from "./render.js";
+
+// Crash-safe module dir (see render.js): ESM in dev, cwd in the bundled .exe.
+let MODULE_DIR;
+try { MODULE_DIR = path.dirname(fileURLToPath(import.meta.url)); }
+catch { MODULE_DIR = process.cwd(); }
+// When shipped, ffmpeg.exe/out sit next to the exe — used to self-locate assets
+// so double-clicking the exe works (not just start.bat), and to auto-open the
+// browser in that case.
+const EXE_DIR = path.dirname(process.execPath);
+const PACKAGED = fssync.existsSync(path.join(EXE_DIR, "ffmpeg.exe"));
+// Job temp dirs live in the OS temp folder, NOT under the project (which may be
+// inside OneDrive/Dropbox and lock files during sync).
+const TMP = path.join(os.tmpdir(), "autoeditor-render");
+
+// Best-effort recursive delete — never let a locked/synced file crash a render.
+function rmrf(p) {
+  try { fssync.rmSync(p, { recursive: true, force: true }); } catch { /* ignore */ }
+}
+const PORT = process.env.PORT || 4000;
+const ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+// Static frontend (the Next.js `out/` export). In the shipped app the backend
+// serves the UI itself, so it's same-origin; in dev the frontend runs separately.
+const FRONTEND_DIR = process.env.FRONTEND_DIR
+  || (fssync.existsSync(path.join(EXE_DIR, "out", "index.html")) ? path.join(EXE_DIR, "out") : path.join(MODULE_DIR, "..", "out"));
+
+fssync.mkdirSync(TMP, { recursive: true });
+// Startup sweep: clear any stale job dirs from a previous run (best-effort).
+for (const d of fssync.readdirSync(TMP)) rmrf(path.join(TMP, d));
+
+const jobs = new Map(); // id -> { dir, proc, total, progress, status, outPath, error, listeners:Set }
+
+// Pick the fastest working H.264 encoder once at startup (hardware if available,
+// else CPU libx264). Renders still fall back per-job if a hardware encode fails.
+// FORCE_ENCODER (e.g. "libx264") overrides detection.
+let ENCODER = "libx264";
+if (process.env.FORCE_ENCODER) {
+  ENCODER = process.env.FORCE_ENCODER;
+  console.log(`Video encoder: ${ENCODER} (forced)`);
+} else {
+  detectEncoder().then((e) => {
+    ENCODER = e;
+    console.log(`Video encoder: ${e}${e === "libx264" ? " (CPU)" : " (GPU / hardware)"}`);
+  });
+}
+
+const app = express();
+app.use(cors({ origin: ORIGIN }));
+
+// Per-request job dir, created before multer writes uploads into it.
+function newJob(req, _res, next) {
+  const id = crypto.randomUUID();
+  const dir = path.join(TMP, id);
+  fssync.mkdirSync(dir, { recursive: true });
+  req.jobId = id;
+  req.jobDir = dir;
+  next();
+}
+
+const storage = multer.diskStorage({
+  destination: (req, _file, cb) => cb(null, req.jobDir),
+  // image fields are keyed by clip name; audio by "audio". Keep a safe basename.
+  filename: (_req, file, cb) => {
+    const safe = String(file.fieldname).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const ext = (file.originalname.match(/\.([a-z0-9]+)$/i) || [, "bin"])[1].toLowerCase();
+    cb(null, `${safe}.${ext}`);
+  },
+});
+const upload = multer({ storage });
+
+function broadcast(job, payload) {
+  const data = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const res of job.listeners) res.write(data);
+}
+
+function endListeners(job) {
+  for (const r of job.listeners) r.end();
+  job.listeners.clear();
+}
+
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
+app.post("/render", newJob, upload.any(), async (req, res) => {
+  try {
+    const spec = JSON.parse(req.body.spec);
+    const fileMap = {};
+    for (const f of req.files) fileMap[f.fieldname] = f.filename;
+
+    const { paths, audioName, capChain } = await writeInputs(req.jobDir, spec, fileMap);
+
+    const job = {
+      dir: req.jobDir, proc: null, total: 0,
+      progress: 0, status: "running", outPath: null, error: null, listeners: new Set(),
+    };
+    jobs.set(req.jobId, job);
+
+    // Render with the chosen encoder; if a hardware encode fails on this machine,
+    // retry once with CPU libx264 so it always produces a valid video.
+    const launch = (encoder) => {
+      const plan = buildRenderPlan(spec, { paths, audioName, capChain, encoder });
+      // Write the filtergraph to disk so ffmpeg reads it from a file (avoids
+      // over-long command lines when captions add many drawtext filters).
+      for (const f of plan.filterFiles) fssync.writeFileSync(path.join(req.jobDir, f.name), f.text);
+      job.total = plan.total;
+      const { proc, done } = runRender(req.jobDir, plan.args, plan.total, (p) => {
+        job.progress = p;
+        broadcast(job, { progress: p });
+      });
+      job.proc = proc;
+
+      done.then((outPath) => {
+        job.status = "done"; job.outPath = outPath; job.progress = 1;
+        broadcast(job, { progress: 1 });
+        broadcast(job, { done: true });
+        endListeners(job);
+      }).catch((err) => {
+        if (job.status === "cancelled") return;
+        if (encoder !== "libx264") {
+          console.warn(`Encoder ${encoder} failed — falling back to libx264. ${String(err.message || err).split("\n")[0]}`);
+          job.progress = 0;
+          broadcast(job, { progress: 0 });
+          launch("libx264");
+          return;
+        }
+        job.status = "error"; job.error = String(err.message || err);
+        broadcast(job, { error: job.error });
+        endListeners(job);
+      });
+    };
+    launch(ENCODER);
+
+    res.json({ jobId: req.jobId });
+  } catch (err) {
+    rmrf(req.jobDir);
+    res.status(400).json({ error: String(err.message || err) });
+  }
+});
+
+app.get("/render/:id/events", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).end();
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.flushHeaders();
+  res.write(`data: ${JSON.stringify({ progress: job.progress })}\n\n`);
+  if (job.status === "done") { res.write(`data: ${JSON.stringify({ done: true })}\n\n`); return res.end(); }
+  if (job.status === "error") { res.write(`data: ${JSON.stringify({ error: job.error })}\n\n`); return res.end(); }
+  job.listeners.add(res);
+  req.on("close", () => job.listeners.delete(res));
+});
+
+app.get("/render/:id/file", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job || job.status !== "done" || !job.outPath) return res.status(404).end();
+  res.sendFile(job.outPath, (err) => {
+    if (!err) {
+      // Clean up after the browser has the bytes.
+      setTimeout(() => {
+        rmrf(job.dir);
+        jobs.delete(req.params.id);
+      }, 1000);
+    }
+  });
+});
+
+app.post("/render/:id/cancel", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).end();
+  job.status = "cancelled";
+  if (job.proc) { try { job.proc.kill("SIGKILL"); } catch { /* already gone */ } }
+  endListeners(job);
+  rmrf(job.dir);
+  jobs.delete(req.params.id);
+  res.json({ ok: true });
+});
+
+// Serve the built static UI (if present) after the API routes, so the app is
+// reachable at the same origin as the render endpoints.
+if (fssync.existsSync(FRONTEND_DIR)) app.use(express.static(FRONTEND_DIR));
+
+// Open the user's default browser once the server is up (only when launched via
+// start.bat, which sets OPEN_BROWSER=1 — never during tests).
+function openBrowser(url) {
+  try {
+    if (process.platform === "win32") spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
+    else if (process.platform === "darwin") spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+    else spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+  } catch { /* ignore */ }
+}
+
+app.listen(PORT, () => {
+  console.log(`AutoEditor running on http://localhost:${PORT}`);
+  console.log("Keep this window open. Close it (or press Ctrl+C) to stop the app.");
+  // Auto-open when launched via start.bat (OPEN_BROWSER=1) or by double-clicking
+  // the packaged exe. OPEN_BROWSER=0 disables it.
+  const wantOpen = process.env.OPEN_BROWSER === "0"
+    ? false
+    : (process.env.OPEN_BROWSER === "1" || PACKAGED);
+  if (wantOpen) openBrowser(`http://localhost:${PORT}`);
+});

@@ -1,0 +1,67 @@
+// Render-side caption helpers, copied verbatim from lib/captions.js so the
+// burned-in text matches the frontend preview exactly. Only the render-side
+// pieces are here — transcript parsing and canvas drawing stay in the frontend.
+
+// ---- style presets (shared by preview canvas + ffmpeg drawtext) ----
+export const CAPTION_STYLES = {
+  classic: {
+    id: "classic", label: "Classic outline",
+    fill: "#ffffff", stroke: "#000000", box: null,
+    dt: (bw) => `fontcolor=white:borderw=${bw}:bordercolor=black@0.9`,
+  },
+  boxed: {
+    id: "boxed", label: "Boxed",
+    fill: "#ffffff", stroke: null, box: "rgba(0,0,0,0.6)",
+    dt: (bw) => `fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=${Math.round(bw * 3.5)}`,
+  },
+  yellow: {
+    id: "yellow", label: "Yellow classic",
+    fill: "#ffd400", stroke: "#000000", box: null,
+    dt: (bw) => `fontcolor=0xFFD400:borderw=${bw}:bordercolor=black@0.9`,
+  },
+};
+
+export const CAPTION_SIZES = { sm: 0.042, md: 0.052, lg: 0.064 };
+export const CAPTION_FONT = "caption.ttf";          // path in the ffmpeg FS
+export const captionCueFile = (i) => `cap${i}.txt`;  // per-cue textfile in the FS
+
+export function captionFontPx(height, sizeId) {
+  return Math.round(height * (CAPTION_SIZES[sizeId] || CAPTION_SIZES.md));
+}
+
+const MARGIN_FACTOR = 0.07;
+
+// Vertical slot (top y) for line i of an n-line caption, bottom-anchored.
+const lineTop = (H, fontPx, n, i) =>
+  Math.round(H - H * MARGIN_FACTOR - (n - i) * fontPx * 1.16);
+
+// ---- render: one centered drawtext per LINE (so each line is centered) ----
+// Returns the filter chain plus the per-line textfiles to write into the FS.
+export function buildCaptionBurn(cues, styleId, width, height, sizeId) {
+  const st = CAPTION_STYLES[styleId] || CAPTION_STYLES.classic;
+  const fs = captionFontPx(height, sizeId);
+  const bw = Math.max(2, Math.round(fs / 9));
+  const files = [];
+  const filters = [];
+  let li = 0;
+  for (const c of cues) {
+    const lines = c.text.split("\n");
+    const n = lines.length;
+    const s = c.start.toFixed(3), e = c.end.toFixed(3);
+    for (let i = 0; i < n; i++) {
+      const name = captionCueFile(li++);
+      files.push({ name, text: sanitizeCueText(lines[i]) });
+      const y = lineTop(height, fs, n, i);
+      filters.push(
+        `drawtext=fontfile=${CAPTION_FONT}:textfile=${name}:${st.dt(bw)}` +
+        `:fontsize=${fs}:x=(w-text_w)/2:y=${y}:enable=between(t\\,${s}\\,${e})`
+      );
+    }
+  }
+  return { filter: filters.join(","), files };
+}
+
+// drawtext reads textfiles literally; strip chars its expander would choke on.
+export function sanitizeCueText(text) {
+  return String(text).replace(/\\/g, "").replace(/%/g, "percent");
+}

@@ -2,12 +2,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./globals.css";
 import { parseTimestampName } from "../lib/timestamp";
-import { buildTimeline, LEAD_IN } from "../lib/timeline";
+import { buildTimeline, trimClips, LEAD_IN } from "../lib/timeline";
 import { resolveDimensions } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
-import { renderVideo, cancelRender } from "../lib/ffmpegRender";
-import { DEFAULT_TRANSITION_DURATION } from "../lib/transitions";
+import { renderVideo, cancelRender } from "../lib/serverRender";
+import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
 import Editor from "../components/Editor";
@@ -66,6 +66,7 @@ export default function Home() {
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
   const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
+  const [trimEnd, setTrimEnd] = useState(0); // export end point (0 = untrimmed / full audio)
   const [captionRaw, setCaptionRaw] = useState(null); // uploaded transcript text
   const [captionName, setCaptionName] = useState(null);
   const [captionsOn, setCaptionsOn] = useState(false);
@@ -154,6 +155,16 @@ export default function Home() {
     });
   }, [commitDoc]);
 
+  // Roll edit: move the boundary between an image and the next clip by setting
+  // the next clip's slot start. buildTimeline re-derives both durations; total
+  // length and every other slot are untouched. One commit = one undo step.
+  const resizeBoundary = useCallback((id, seconds) => {
+    commitDoc((d) => ({
+      ...d,
+      slots: d.slots.map((s) => (s.id === id ? { ...s, seconds: +seconds.toFixed(3) } : s)),
+    }));
+  }, [commitDoc]);
+
   // Read an uploaded transcript; parsing happens in a memo below so it re-syncs
   // if the audio length changes.
   const onCaptionFile = useCallback(async (file) => {
@@ -180,6 +191,17 @@ export default function Home() {
       const next = {};
       // Skip the first clip — it has no incoming cut.
       for (let i = 1; i < clipNames.length; i++) next[clipNames[i]] = type;
+      return { ...d, transitionsByName: next };
+    });
+  }, [commitDoc]);
+  // Random mix: assign each cut a transition drawn randomly from `picks`
+  // (no back-to-back repeats). One commit = one undo step.
+  const applyTransitionMix = useCallback((picks, clipNames) => {
+    const cutNames = clipNames.slice(1); // first image has no incoming transition
+    const assigned = mixTransitions(picks, cutNames.length);
+    commitDoc((d) => {
+      const next = {};
+      cutNames.forEach((name, i) => { next[name] = assigned[i]; });
       return { ...d, transitionsByName: next };
     });
   }, [commitDoc]);
@@ -242,6 +264,11 @@ export default function Home() {
     [items, audioDuration]
   );
 
+  // A new voiceover resets any prior trim to the full length.
+  useEffect(() => { setTrimEnd(audioDuration); }, [audioDuration]);
+
+  const exportDuration = trimEnd > 0 ? Math.min(trimEnd, audioDuration) : audioDuration;
+
   const ready = audioFile && clips.length > 0;
   const showEditor = built && ready;
 
@@ -257,10 +284,11 @@ export default function Home() {
     cancelRef.current = false;
     setBusy(true); setError(null); setOutUrl(null); setProgress(0);
     try {
-      const transitions = clips.map((c) => transitionsByName[c.name] || "cut");
+      const exportClips = trimClips(clips, exportDuration);
+      const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const captions = captionsOn && captionCues.length ? captionCues : null;
       const blob = await renderVideo({
-        clips, imagesByName, audioFile,
+        clips: exportClips, imagesByName, audioFile,
         width: dims.width, height: dims.height, fps,
         transitions, transitionDuration, fadeIn, fadeOut,
         captions, captionStyle, captionSize,
@@ -272,7 +300,7 @@ export default function Home() {
     } finally {
       if (!cancelRef.current) setBusy(false);
     }
-  }, [clips, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, fadeIn, fadeOut,
+  }, [clips, exportDuration, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, fadeIn, fadeOut,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   return (
@@ -283,17 +311,29 @@ export default function Home() {
           <span className="brand__name"><span className="brand__pre">TryAIToday</span> AutoEditor</span>
           <span className="brand__tag">image · voiceover sync</span>
         </div>
-        <div className="bar__io">
-          <Dropzone
-            compact accept="audio/*" onFiles={onAudio} icon="♪"
-            title="Import voiceover" filled={!!audioFile}
-            filledLabel={audioFile ? audioFile.name : ""}
-          />
-          <Dropzone
-            compact multiple accept="image/*" onFiles={addImages} icon="▦"
-            title="Add images" filled={imageCount > 0}
-            filledLabel={imageCount ? `${imageCount} images` : ""}
-          />
+        <div className="bar__actions">
+          <a
+            className="ext-link"
+            href="https://chromewebstore.google.com/detail/bcmmekkamenpjoogmegiffgemlgikbgf?utm_source=item-share-cb"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Get the TryAIToday Flow Automator Chrome extension"
+          >
+            <span className="ext-link__icon" aria-hidden="true">🧩</span>
+            <span className="ext-link__text">Get the Extension</span>
+          </a>
+          <div className="bar__io">
+            <Dropzone
+              compact accept="audio/*" onFiles={onAudio} icon="♪"
+              title="Import voiceover" filled={!!audioFile}
+              filledLabel={audioFile ? audioFile.name : ""}
+            />
+            <Dropzone
+              compact multiple accept="image/*" onFiles={addImages} icon="▦"
+              title="Add images" filled={imageCount > 0}
+              filledLabel={imageCount ? `${imageCount} images` : ""}
+            />
+          </div>
         </div>
       </header>
 
@@ -371,11 +411,14 @@ export default function Home() {
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
           replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}
+          resizeBoundary={resizeBoundary}
           transitionsByName={transitionsByName} transitionDuration={transitionDuration}
           setTransition={setTransition} applyTransitionAll={applyTransitionAll}
+          applyTransitionMix={applyTransitionMix}
           setTransitionDuration={setTransitionDuration}
           fadeIn={fadeIn} setFadeIn={setFadeIn}
           fadeOut={fadeOut} setFadeOut={setFadeOut}
+          trimEnd={exportDuration} setTrimEnd={setTrimEnd} exportDuration={exportDuration}
           undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
           captionCues={captionCues} captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}
           captionStyle={captionStyle} setCaptionStyle={setCaptionStyle}

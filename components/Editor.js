@@ -28,9 +28,10 @@ export default function Editor({
   clips, imageEls, audioUrl, duration, peaks, dims,
   aspect, setAspect, fps, setFps,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
-  replaceImage, removeImage, fillGap,
-  transitionsByName, transitionDuration, setTransition, applyTransitionAll, setTransitionDuration,
+  replaceImage, removeImage, fillGap, resizeBoundary,
+  transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
+  trimEnd, setTrimEnd, exportDuration,
   undo, redo, canUndo, canRedo,
   captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
   captionSize, setCaptionSize, captionName, captionError, onCaptionFile,
@@ -42,6 +43,8 @@ export default function Editor({
   const capInputRef = useRef(null);
   const replaceInputRef = useRef(null);
   const pending = useRef(null); // gap-fill target name
+  const trimEndRef = useRef(exportDuration);
+  useEffect(() => { trimEndRef.current = exportDuration; }, [exportDuration]);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0); // seconds spent in the current render
@@ -50,6 +53,15 @@ export default function Editor({
   const [inspect, setInspect] = useState(null);   // slot name open in the inspector
   const [pendFile, setPendFile] = useState(null);  // chosen replacement, not yet applied
   const [pendUrl, setPendUrl] = useState(null);
+  const [mixMode, setMixMode] = useState(false); // Transitions panel in random-mix mode
+  const [mixPicks, setMixPicks] = useState(() => new Set()); // ephemeral: chosen transitions for the random mix
+  const toggleMix = useCallback((id) => {
+    setMixPicks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   // Gap "+" → pick a file to fill an empty slot / lead-in.
   const askAdd = useCallback((name) => {
@@ -145,12 +157,12 @@ export default function Editor({
       ctx.globalAlpha = Math.max(0, 1 - t / fadeIn);
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
-    const outStart = duration - fadeOut;
+    const outStart = exportDuration - fadeOut;
     if (fadeOut > 0 && t > outStart) {
       ctx.globalAlpha = Math.min(1, (t - outStart) / fadeOut);
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
-  }, [clips, imageEls, transitionsByName, transitionDuration, fadeIn, fadeOut, duration,
+  }, [clips, imageEls, transitionsByName, transitionDuration, fadeIn, fadeOut, duration, exportDuration,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   useEffect(() => { draw(time); }, [time, draw]);
@@ -168,7 +180,17 @@ export default function Editor({
   useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
-    const loop = () => { setTime(a.currentTime); rafRef.current = requestAnimationFrame(loop); };
+    const loop = () => {
+      const end = trimEndRef.current;
+      if (end > 0 && a.currentTime >= end) {
+        a.pause();
+        a.currentTime = end;
+        setTime(end);
+        return;
+      }
+      setTime(a.currentTime);
+      rafRef.current = requestAnimationFrame(loop);
+    };
     const onPlay = () => { setPlaying(true); cancelAnimationFrame(rafRef.current); rafRef.current = requestAnimationFrame(loop); };
     const onStop = () => { setPlaying(false); cancelAnimationFrame(rafRef.current); setTime(a.currentTime); };
     a.addEventListener("play", onPlay);
@@ -248,7 +270,7 @@ export default function Editor({
             <div className="time">
               <span className="time__now">{tc(time)}</span>
               <span className="time__sep">/</span>
-              <span className="time__total">{tc(duration)}</span>
+              <span className="time__total">{tc(exportDuration)}</span>
             </div>
             <div className="transport__spacer" />
             <div className="history">
@@ -292,6 +314,9 @@ export default function Editor({
           onSeek={seek}
           onOpen={openInspect}
           onAdd={askAdd}
+          onResizeBoundary={resizeBoundary}
+          trimEnd={trimEnd}
+          onTrimChange={setTrimEnd}
         />
       </div>
 
@@ -324,7 +349,15 @@ export default function Editor({
           <dl className="specs">
             <div className="spec"><dt>Resolution</dt><dd>{dims.width}×{dims.height}</dd></div>
             <div className="spec"><dt>Images</dt><dd>{imageCount}</dd></div>
-            <div className="spec"><dt>Length</dt><dd>{tc(duration)}</dd></div>
+            <div className="spec spec--length">
+              <dt>Length</dt>
+              <dd>
+                {tc(exportDuration)}
+                {exportDuration < duration && (
+                  <span className="spec__trim">trimmed from {tc(duration)}</span>
+                )}
+              </dd>
+            </div>
           </dl>
 
           {gapCount > 0 && (
@@ -434,7 +467,19 @@ export default function Editor({
 
         <div className="panel transitions">
           <div className="transitions__head">
-            <span className="panel__h">Transitions</span>
+            <div className="transitions__titlerow">
+              <span className="panel__h">Transitions</span>
+              <button
+                type="button"
+                className={`cap-switch ${mixMode ? "is-on" : ""}`}
+                onClick={() => setMixMode((v) => !v)}
+                aria-pressed={mixMode}
+                title="Randomly apply a set of transitions across all cuts"
+              >
+                <span className="cap-switch__box" />
+                Random mix
+              </button>
+            </div>
             <span className="transitions__target">
               {selectedIndex > 0
                 ? `Into image ${selectedImageNum || "—"} · ${tc(selectedClip.start)}`
@@ -445,16 +490,19 @@ export default function Editor({
           </div>
 
           <div className="transitions__chips">
-            {TRANSITION_LIST.map((tr) => (
-              <button
-                key={tr.id}
-                type="button"
-                className={`trchip ${currentType === tr.id ? "is-on" : ""}`}
-                onClick={() => pickType(tr.id)}
-              >
-                <span className="trchip__icon">{tr.icon}</span>{tr.label}
-              </button>
-            ))}
+            {TRANSITION_LIST.map((tr) => {
+              const on = mixMode ? mixPicks.has(tr.id) : currentType === tr.id;
+              return (
+                <button
+                  key={tr.id}
+                  type="button"
+                  className={`trchip ${on ? "is-on" : ""}`}
+                  onClick={() => (mixMode ? toggleMix(tr.id) : pickType(tr.id))}
+                >
+                  <span className="trchip__icon">{tr.icon}</span>{tr.label}
+                </button>
+              );
+            })}
           </div>
 
           <label className="trdur">
@@ -466,12 +514,28 @@ export default function Editor({
             />
             <span className="trdur__val">{transitionDuration.toFixed(2)}s</span>
           </label>
-          <button
-            type="button" className="trall"
-            onClick={() => applyTransitionAll(currentType, clips.map((c) => c.name))}
-          >
-            Apply “{transitionOf(currentType).label}” to all cuts
-          </button>
+
+          {!mixMode ? (
+            <button
+              type="button" className="trall"
+              onClick={() => applyTransitionAll(currentType, clips.map((c) => c.name))}
+            >
+              Apply “{transitionOf(currentType).label}” to all cuts
+            </button>
+          ) : (
+            <div className="trmix-foot">
+              <span className="trmix-count">
+                {mixPicks.size ? `Picked ${mixPicks.size}` : "None picked"}
+              </span>
+              <button
+                type="button" className="trall trmix-apply"
+                disabled={mixPicks.size === 0}
+                onClick={() => applyTransitionMix([...mixPicks], clips.map((c) => c.name))}
+              >
+                Apply random mix to video
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -515,14 +579,14 @@ export default function Editor({
               {!pendUrl ? (
                 <div className="modal__actions">
                   <button className="mbtn mbtn--primary" onClick={() => replaceInputRef.current && replaceInputRef.current.click()}>
-                    Replace image…
+                    Replace image
                   </button>
                   <button className="mbtn mbtn--danger" onClick={removeInspected}>Remove from timeline</button>
                 </div>
               ) : (
                 <div className="modal__actions">
                   <button className="mbtn mbtn--primary" onClick={applyReplacement}>Apply replacement</button>
-                  <button className="mbtn" onClick={() => replaceInputRef.current && replaceInputRef.current.click()}>Choose different…</button>
+                  <button className="mbtn" onClick={() => replaceInputRef.current && replaceInputRef.current.click()}>Choose different</button>
                   <button className="mbtn mbtn--ghost" onClick={clearPend}>Cancel</button>
                 </div>
               )}

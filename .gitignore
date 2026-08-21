@@ -2,3 +2,6 @@ node_modules/
 .next/
 out/
 *.log
+
+# build output
+dist/

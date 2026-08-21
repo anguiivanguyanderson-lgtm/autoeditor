@@ -68,10 +68,25 @@ body {
   color: var(--faint); padding-left: 10px; margin-left: 6px;
   border-left: 1px solid var(--line);
 }
+.bar__actions { display: flex; align-items: center; gap: 10px; }
 .bar__io { display: flex; gap: 10px; flex-wrap: wrap; }
 /* On the landing screen the hero already has prominent drop zones —
    drop the duplicate compact import pair from the top bar. */
 .bar--onboard .bar__io { display: none; }
+
+/* Always-present link to the TryAIToday Flow Automator Chrome extension. */
+.ext-link {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  padding: 8px 12px; border-radius: 10px; white-space: nowrap;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+  color: var(--amber);
+  background: rgba(245, 166, 35, .10);
+  border: 1px solid rgba(245, 166, 35, .35);
+  transition: background .15s, border-color .15s, transform .05s;
+}
+.ext-link:hover { background: rgba(245, 166, 35, .18); border-color: var(--amber); }
+.ext-link:active { transform: translateY(1px); }
+.ext-link__icon { font-size: 14px; line-height: 1; }
 
 /* ---------- Dropzone ---------- */
 .dz {
@@ -238,9 +253,13 @@ body {
 }
 .ctrl select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .specs { margin: 4px 0 18px; padding: 12px 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
-.spec { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
-.spec dt { font-size: 13px; color: var(--muted); margin: 0; }
+.spec { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; }
+.spec dt { font-size: 13px; color: var(--muted); margin: 0; flex: none; }
 .spec dd { margin: 0; font-family: var(--font-mono); font-size: 13.5px; color: var(--text); }
+/* The trimmed-length note sits on its own line under the value, so a long
+   "trimmed from …" never collides with the "Length" label. */
+.spec--length dd { text-align: right; }
+.spec__trim { display: block; margin-top: 2px; font-size: 11px; opacity: .6; }
 
 .render {
   width: 100%; font: inherit; font-weight: 700; font-size: 15px;
@@ -346,6 +365,20 @@ body {
 }
 .clip:hover { box-shadow: inset 0 0 0 2px rgba(255,255,255,.14); }
 
+/* Right-edge grip to roll the boundary with the next clip (change hold time). */
+.clip__resize {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 12px;
+  cursor: ew-resize; touch-action: none; z-index: 4;
+  display: flex; align-items: center; justify-content: flex-end;
+}
+.clip__resize::after {
+  content: ""; width: 3px; height: 42%; margin-right: 3px; border-radius: 2px;
+  background: rgba(255,255,255,.55);
+  opacity: 0; transition: opacity .12s;
+}
+.clip:hover .clip__resize::after,
+.clip__resize:hover::after { opacity: 1; }
+
 /* Empty gap placeholder */
 .clip--gap { background-color: var(--bg); box-shadow: none; }
 .clip__add {
@@ -374,6 +407,27 @@ body {
   width: 11px; height: 11px; border-radius: 50%; background: var(--amber);
 }
 
+/* Trim: shade marks the untrimmed tail (won't export); handle sets the trim point. */
+.tl__trim-shade {
+  position: absolute; top: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(0,0,0,.28), rgba(0,0,0,.28) 6px,
+    rgba(0,0,0,.14) 6px, rgba(0,0,0,.14) 12px
+  );
+  pointer-events: none; z-index: 3;
+}
+.tl__trim {
+  position: absolute; top: 0; bottom: 0; width: 12px; margin-left: -6px;
+  cursor: ew-resize; z-index: 6; display: flex; justify-content: center; touch-action: none;
+}
+.tl__trim::before { content: ""; width: 2px; height: 100%; background: var(--amber); }
+.tl__trim-grip {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 10px; height: 22px; border-radius: 3px; background: var(--amber);
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+
 /* ---------- Transitions panel ---------- */
 .transitions__head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
 .transitions__head .panel__h { margin: 0; }
@@ -399,6 +453,14 @@ body {
   border-radius: 9px; padding: 9px 14px; cursor: pointer;
 }
 .trall:hover { border-color: var(--accent); }
+
+/* Transitions panel title row: heading + the Random-mix toggle. */
+.transitions__titlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.trmix-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.trmix-count { font-size: 12.5px; color: var(--muted); }
+.trmix-apply { width: auto; margin: 0; }
+.trmix-apply:disabled { opacity: .5; cursor: default; }
+.trmix-apply:disabled:hover { border-color: var(--line); }
 
 /* ---------- Captions panel ---------- */
 .cap-empty { display: flex; flex-direction: column; gap: 10px; }
@@ -544,6 +606,34 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
   .tl__track { touch-action: pan-x; cursor: pointer; }
   .tl__lane--video, .tl__tag { height: 78px; }
   .clip__meta { font-size: 11px; }
+  /* Touch has no hover — keep the resize grip visible. */
+  .clip__resize::after { opacity: 1; }
+
+  /* Header: drop the decorative tag; the two import chips share their own row,
+     each shrinking and truncating so they stay side-by-side instead of stacking
+     full-width or running off-screen. */
+  .bar { padding: 10px 12px; }
+  .brand__tag { display: none; }
+  /* The extension link + import chips take their own full-width row and stack. */
+  .bar__actions { width: 100%; flex-wrap: wrap; }
+  .ext-link { flex: 1; justify-content: center; }
+  .bar__io { width: 100%; flex-wrap: nowrap; }
+  .bar__io > .dz { flex: 1; min-width: 0; }
+  .dz--compact .dz__title { max-width: none; }
+
+  /* Transport: without the spacer the controls flow and wrap naturally, so the
+     "now image" chip drops to its own line instead of being clipped. */
+  .transport { flex-wrap: wrap; row-gap: 8px; }
+  .transport__spacer { display: none; }
+  .history { margin-right: 0; }
+  .nowclip { max-width: none; }
+
+  /* Inspector modal: use more of the narrow screen and stack the actions into
+     full-width buttons instead of cramming them side-by-side. */
+  .modal { padding: 12px; }
+  .modal__card { padding: 14px; }
+  .modal__actions { flex-direction: column; }
+  .mbtn { min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

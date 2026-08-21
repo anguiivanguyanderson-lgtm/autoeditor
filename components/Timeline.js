@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { transitionOf } from "../lib/transitions";
 
 function label(t) {
@@ -33,7 +33,8 @@ function Waveform({ peaks }) {
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
   transitionsByName, selectedName, onSelect,
-  onSeek, onOpen, onAdd,
+  onSeek, onOpen, onAdd, onResizeBoundary,
+  trimEnd, onTrimChange,
 }) {
   const trackRef = useRef(null);
   const downRef = useRef(null); // pointer-down position, to tell a clip tap from a drag
@@ -59,6 +60,81 @@ export default function Timeline({
     window.addEventListener("pointerup", up);
   }, [seekAt]);
 
+  const MIN_TRIM = 1;      // never allow a zero-length export
+  const SNAP_PX = 8;       // snap to a clip boundary within this many pixels
+
+  const trimAt = useCallback((clientX) => {
+    const el = trackRef.current;
+    if (!el || !duration || !onTrimChange) return;
+    const r = el.getBoundingClientRect();
+    const x = Math.min(Math.max(clientX - r.left, 0), r.width);
+    let secs = (x / r.width) * duration;
+
+    // Snap to the nearest clip start/end boundary when the pointer is close.
+    const snapSecs = (SNAP_PX / r.width) * duration;
+    let best = null, bestD = snapSecs;
+    for (const c of clips) {
+      for (const edge of [c.start, c.start + c.duration]) {
+        const d = Math.abs(edge - secs);
+        if (d <= bestD) { bestD = d; best = edge; }
+      }
+    }
+    if (best != null) secs = best;
+
+    secs = Math.min(Math.max(secs, MIN_TRIM), duration);
+    onTrimChange(+secs.toFixed(3));
+  }, [duration, clips, onTrimChange]);
+
+  const onTrimDown = useCallback((e) => {
+    e.stopPropagation();
+    trimAt(e.clientX);
+    const move = (ev) => trimAt(ev.clientX);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }, [trimAt]);
+
+  const MIN_CLIP = 0.3; // never let a clip collapse below this many seconds
+  const [drag, setDrag] = useState(null); // { index, sec } during a right-edge resize
+
+  // Map a pointer x to the clamped boundary between clip i and clip i+1.
+  const boundaryAt = useCallback((clientX, i) => {
+    const el = trackRef.current;
+    if (!el || !duration) return null;
+    const a = clips[i], b = clips[i + 1];
+    if (!a || !b) return null;
+    const r = el.getBoundingClientRect();
+    const x = Math.min(Math.max(clientX - r.left, 0), r.width);
+    const secs = (x / r.width) * duration;
+    const lo = a.start + MIN_CLIP;
+    const hi = (b.start + b.duration) - MIN_CLIP;
+    return Math.min(Math.max(secs, lo), Math.max(lo, hi));
+  }, [duration, clips]);
+
+  const onResizeDown = useCallback((e, i) => {
+    e.stopPropagation();
+    setDrag({ index: i, sec: clips[i + 1].start });
+    const move = (ev) => {
+      const s = boundaryAt(ev.clientX, i);
+      if (s != null) setDrag({ index: i, sec: s });
+    };
+    const up = (ev) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const s = boundaryAt(ev.clientX, i);
+      setDrag(null);
+      // Only commit a real change, so a plain click on the grip adds no history.
+      if (s != null && onResizeBoundary && Math.abs(s - clips[i + 1].start) > 0.001) {
+        onResizeBoundary(clips[i + 1].name, s);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }, [boundaryAt, clips, onResizeBoundary]);
+
   // A clip opens the inspector only on a clean tap, not a drag/scroll.
   const onClipClick = useCallback((name, e) => {
     const d = downRef.current;
@@ -77,6 +153,9 @@ export default function Timeline({
   // clips into slivers. Percentages resolve against this wider track, so the
   // ruler, clips, waveform and playhead all stay aligned.
   const rowMin = clips.length ? 30 + clips.length * 72 : 0;
+
+  const trimPos = trimEnd > 0 && trimEnd < duration ? trimEnd : duration;
+  const trimmed = trimPos < duration;
 
   return (
     <div className="tl" style={rowMin ? { "--tl-min": `${rowMin}px` } : undefined}>
@@ -126,8 +205,13 @@ export default function Timeline({
 
         <div className="tl__track" ref={trackRef}>
           <div className="tl__lane tl__lane--video">
-            {clips.map((c) => {
-              const style = { left: pct(c.start), width: pct(c.duration) };
+            {clips.map((c, i) => {
+              let cStart = c.start, cDur = c.duration;
+              if (drag) {
+                if (i === drag.index) cDur = drag.sec - c.start;
+                else if (i === drag.index + 1) { cStart = drag.sec; cDur = (c.start + c.duration) - drag.sec; }
+              }
+              const style = { left: pct(cStart), width: pct(cDur) };
 
               if (c.gap) {
                 return (
@@ -135,14 +219,14 @@ export default function Timeline({
                     key={c.name}
                     className="clip clip--gap"
                     style={style}
-                    title={`Empty · ${label(c.start)} · ${c.duration.toFixed(1)}s`}
+                    title={`Empty · ${label(cStart)} · ${cDur.toFixed(1)}s`}
                   >
                     <button
                       type="button" className="clip__add" title="Add an image here"
                       onPointerDown={stop} onClick={() => onAdd && onAdd(c.name)}
                     >
                       <span className="clip__plus">+</span>
-                      <span className="clip__meta clip__meta--gap">{c.duration.toFixed(1)}s</span>
+                      <span className="clip__meta clip__meta--gap">{cDur.toFixed(1)}s</span>
                     </button>
                   </div>
                 );
@@ -159,12 +243,19 @@ export default function Timeline({
                   key={c.name}
                   className={cls.join(" ")}
                   style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
-                  title={`${el && el.fileName ? el.fileName + " · " : ""}${label(c.start)} · ${c.duration.toFixed(1)}s — click to preview / replace`}
+                  title={`${el && el.fileName ? el.fileName + " · " : ""}${label(cStart)} · ${cDur.toFixed(1)}s — click to preview / replace`}
                   onPointerDown={(e) => { downRef.current = { x: e.clientX, y: e.clientY }; }}
                   onClick={(e) => onClipClick(c.name, e)}
                 >
-                  <span className="clip__meta">{c.duration.toFixed(1)}s</span>
+                  <span className="clip__meta">{cDur.toFixed(1)}s</span>
                   {fname && <span className="clip__name">{fname}</span>}
+                  {i < clips.length - 1 && (
+                    <span
+                      className="clip__resize"
+                      title="Drag to change how long this image holds"
+                      onPointerDown={(e) => onResizeDown(e, i)}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -176,6 +267,27 @@ export default function Timeline({
 
           <div className="tl__playhead" style={{ left: pct(time) }}>
             <span className="tl__playhead-grip" />
+          </div>
+
+          {trimmed && (
+            <div
+              className="tl__trim-shade"
+              style={{ left: pct(trimPos), width: pct(duration - trimPos) }}
+              aria-hidden="true"
+            />
+          )}
+          <div
+            className="tl__trim"
+            style={{ left: pct(trimPos) }}
+            onPointerDown={onTrimDown}
+            title="Drag to set where the export ends"
+            role="slider"
+            aria-label="Export end"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration)}
+            aria-valuenow={Math.round(trimPos)}
+          >
+            <span className="tl__trim-grip" />
           </div>
         </div>
       </div>
