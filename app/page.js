@@ -66,6 +66,8 @@ export default function Home() {
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
   const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
+  const [motionByName, setMotionByName] = useState({}); // clip name -> zoomin | zoomout
+  const [motionAmount, setMotionAmount] = useState(0.08); // Ken Burns zoom depth (0–0.2)
   const [trimEnd, setTrimEnd] = useState(0); // export end point (0 = untrimmed / full audio)
   const [captionRaw, setCaptionRaw] = useState(null); // uploaded transcript text
   const [captionName, setCaptionName] = useState(null);
@@ -216,6 +218,20 @@ export default function Home() {
       return { ...d, transitionsByName: next };
     });
   }, [commitDoc]);
+
+  const setMotion = useCallback((name, type) => {
+    setMotionByName((prev) => ({ ...prev, [name]: type }));
+  }, []);
+  const applyMotionAll = useCallback((type, names) => {
+    setMotionByName(() => { const next = {}; for (const n of names) next[n] = type; return next; });
+  }, []);
+  const applyMotionAlternate = useCallback((names) => {
+    setMotionByName(() => {
+      const next = {};
+      names.forEach((n, i) => { next[n] = i % 2 === 0 ? "zoomin" : "zoomout"; });
+      return next;
+    });
+  }, []);
   // Random mix: assign each cut a transition drawn randomly from `picks`
   // (no back-to-back repeats). One commit = one undo step.
   const applyTransitionMix = useCallback((picks, clipNames) => {
@@ -308,11 +324,12 @@ export default function Home() {
     try {
       const exportClips = trimClips(clips, exportDuration);
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
+      const motions = exportClips.map((c) => motionByName[c.name] || "none");
       const captions = captionsOn && captionCues.length ? captionCues : null;
       const blob = await renderVideo({
         clips: exportClips, imagesByName, audioFile,
         width: dims.width, height: dims.height, fps,
-        transitions, transitionDuration, fadeIn, fadeOut,
+        transitions, transitionDuration, motions, motionAmount, fadeIn, fadeOut,
         captions, captionStyle, captionSize,
         onProgress: setProgress,
       });
@@ -322,7 +339,8 @@ export default function Home() {
     } finally {
       if (!cancelRef.current) setBusy(false);
     }
-  }, [clips, exportDuration, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration, fadeIn, fadeOut,
+  }, [clips, exportDuration, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration,
+      motionByName, motionAmount, fadeIn, fadeOut,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   return (
@@ -461,6 +479,9 @@ export default function Home() {
           setTransitionDuration={setTransitionDuration}
           fadeIn={fadeIn} setFadeIn={setFadeIn}
           fadeOut={fadeOut} setFadeOut={setFadeOut}
+          motionByName={motionByName} setMotion={setMotion}
+          applyMotionAll={applyMotionAll} applyMotionAlternate={applyMotionAlternate}
+          motionAmount={motionAmount} setMotionAmount={setMotionAmount}
           trimEnd={exportDuration} setTrimEnd={setTrimEnd} exportDuration={exportDuration}
           undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
           captionCues={captionCues} captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}

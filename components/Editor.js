@@ -31,6 +31,7 @@ export default function Editor({
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
+  motionByName, setMotion, applyMotionAll, applyMotionAlternate, motionAmount, setMotionAmount,
   trimEnd, setTrimEnd, exportDuration,
   undo, redo, canUndo, canRedo,
   captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
@@ -122,6 +123,17 @@ export default function Editor({
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
 
+    // Per-clip Ken Burns zoom at time tt (gaps never zoom). Progress is clamped so
+    // an outgoing image keeps its end-of-clip zoom through the transition.
+    const scaleAt = (ci, tt) => {
+      const c = clips[ci];
+      if (!c || c.gap) return 1;
+      const m = (motionByName && motionByName[c.name]) || "none";
+      if (m === "none") return 1;
+      const lp = Math.min(1, Math.max(0, (tt - c.start) / c.duration));
+      return m === "zoomout" ? 1 + motionAmount * (1 - lp) : 1 + motionAmount * lp;
+    };
+
     if (clips.length) {
       let idx = clips.findIndex((c) => t >= c.start && t < c.start + c.duration);
       if (idx === -1) idx = clips.length - 1;
@@ -130,16 +142,18 @@ export default function Editor({
       const tdur = type === "cut" ? 0 : Math.min(transitionDuration, clip.duration);
 
       if (idx > 0 && tdur > 0 && t < clip.start + tdur) {
-        // Inside a transition: blend the previous image into this one.
+        // Inside a transition: blend the previous image into this one, each at
+        // its own current zoom so nothing snaps back to normal size.
         const p = Math.min(1, Math.max(0, (t - clip.start) / tdur));
         transitionOf(type).canvas(
-          ctx, imageEls[clips[idx - 1].name] || null, imageEls[clip.name] || null, p, W, H
+          ctx, imageEls[clips[idx - 1].name] || null, imageEls[clip.name] || null, p, W, H,
+          scaleAt(idx - 1, t), scaleAt(idx, t)
         );
         ctx.globalAlpha = 1;
       } else {
         const img = imageEls[clip.name];
         if (img) {
-          const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight);
+          const scale = Math.min(W / img.naturalWidth, H / img.naturalHeight) * scaleAt(idx, t);
           const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
           ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
         }
@@ -162,7 +176,8 @@ export default function Editor({
       ctx.globalAlpha = Math.min(1, (t - outStart) / fadeOut);
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
-  }, [clips, imageEls, transitionsByName, transitionDuration, fadeIn, fadeOut, duration, exportDuration,
+  }, [clips, imageEls, transitionsByName, transitionDuration, motionByName, motionAmount,
+      fadeIn, fadeOut, duration, exportDuration,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   useEffect(() => { draw(time); }, [time, draw]);
@@ -309,6 +324,7 @@ export default function Editor({
           activeName={active && active.name}
           badClips={badClips}
           transitionsByName={transitionsByName}
+          motionByName={motionByName}
           selectedName={selectedCut}
           onSelect={selectClip}
           onSeek={seek}
@@ -383,6 +399,25 @@ export default function Editor({
           )}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}
+        </div>
+
+        <div className="panel">
+          <h2 className="panel__h">Motion — Ken Burns zoom</h2>
+          <div className="mini-h">Click an image on the timeline to set its zoom. Set the depth, or apply to all here.</div>
+          <label className="trdur">
+            <span>Zoom depth</span>
+            <input type="range" min={0.02} max={0.2} step={0.01} value={motionAmount}
+              onChange={(e) => setMotionAmount(+e.target.value)} />
+            <span className="trdur__val">{Math.round(motionAmount * 100)}%</span>
+          </label>
+          <div className="seg" style={{ marginTop: 8 }}>
+            <button type="button" onClick={() => applyMotionAll("zoomin", imageClips.map((c) => c.name))}>Zoom in all</button>
+            <button type="button" onClick={() => applyMotionAll("zoomout", imageClips.map((c) => c.name))}>Zoom out all</button>
+          </div>
+          <div className="seg" style={{ marginTop: 6 }}>
+            <button type="button" onClick={() => applyMotionAlternate(imageClips.map((c) => c.name))}>Alternate</button>
+            <button type="button" onClick={() => applyMotionAll("none", imageClips.map((c) => c.name))}>Clear</button>
+          </div>
         </div>
 
         <div className="panel">
@@ -575,6 +610,22 @@ export default function Editor({
               <div className="modal__file">
                 {pendFile ? pendFile.name : (el && el.fileName) || ""}
               </div>
+
+              {insClip && !insClip.gap && (
+                <div className="modal__motion">
+                  <span className="modal__motion-label">Motion (Ken Burns zoom)</span>
+                  <div className="seg">
+                    {[["none", "None"], ["zoomin", "Zoom in"], ["zoomout", "Zoom out"]].map(([id, lbl]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={((motionByName && motionByName[inspect]) || "none") === id ? "is-on" : ""}
+                        onClick={() => setMotion && setMotion(inspect, id)}
+                      >{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {!pendUrl ? (
                 <div className="modal__actions">

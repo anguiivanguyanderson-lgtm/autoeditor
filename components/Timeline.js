@@ -32,7 +32,7 @@ function Waveform({ peaks }) {
 // waveform, playhead and click-to-seek all share the track's coordinate space.
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
-  transitionsByName, selectedName, onSelect,
+  transitionsByName, motionByName, selectedName, onSelect,
   onSeek, onOpen, onAdd, onResizeBoundary,
   trimEnd, onTrimChange,
 }) {
@@ -248,6 +248,11 @@ export default function Timeline({
                   onClick={(e) => onClipClick(c.name, e)}
                 >
                   <span className="clip__meta">{cDur.toFixed(1)}s</span>
+                  {motionByName && motionByName[c.name] && motionByName[c.name] !== "none" && (
+                    <span className="clip__motion" title={motionByName[c.name] === "zoomout" ? "Zoom out" : "Zoom in"}>
+                      {motionByName[c.name] === "zoomout" ? "⤡" : "⤢"}
+                    </span>
+                  )}
                   {fname && <span className="clip__name">{fname}</span>}
                   {i < clips.length - 1 && (
                     <span

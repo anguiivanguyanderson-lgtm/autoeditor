@@ -32,6 +32,27 @@ function vfChain(width, height, fps) {
   return `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`;
 }
+
+// A still (no-zoom) clip stream: scale/pad to the canvas.
+function stillStream(i, width, height, fps) {
+  return `[${i}:v]${vfChain(width, height, fps)}[v${i}]`;
+}
+
+// A Ken Burns zoom stream: one image frame expanded to `frames` output frames by
+// zoompan (d=frames — the smooth form; looping with d=1 is what causes the shake).
+// The source is supersampled 3x first so zoompan's integer crop rounding stays
+// sub-pixel and doesn't jitter. Only zoom clips pay this cost, not the whole encode.
+function zoomStream(i, W, H, fps, motionType, amount, frames) {
+  const A = amount.toFixed(4);
+  const FR = Math.max(2, frames);
+  const z = motionType === "zoomout" ? `1+${A}-(on/${FR - 1})*${A}` : `1+(on/${FR - 1})*${A}`;
+  const M = 3;
+  const PW = Math.round(W * M), PH = Math.round(H * M);
+  const pre = `[${i}:v]scale=${PW}:${PH}:force_original_aspect_ratio=decrease,` +
+    `pad=${PW}:${PH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+  const zp = `zoompan=z='${z}':d=${FR}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${W}x${H}:fps=${fps}`;
+  return `${pre},${zp},format=yuv420p[v${i}]`;
+}
 function fadeVideo(fadeIn, fadeOut, total) {
   const parts = [];
   if (fadeIn > 0) parts.push(`fade=t=in:st=0:d=${fadeIn.toFixed(3)}`);
@@ -74,19 +95,27 @@ function concatArgs({ audioName, width, height, fps, fadeIn, fadeOut, total, cap
   return args;
 }
 
-function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
+function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
   const n = clips.length;
   const frame = 1 / fps;
   const clampT = (d) => Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, d));
   const tdur = (k) => (!transitions || !transitions[k] || transitions[k] === "cut" ? frame : clampT(transitionDuration));
   const tname = (k) => xfadeName(transitions && transitions[k]);
+  // Per-clip Ken Burns zoom (gaps never zoom).
+  const motTypes = clips.map((c, i) => (c.gap ? "none" : (motions && motions[i]) || "none"));
 
   const inputs = [];
   const parts = [];
   for (let i = 0; i < n; i++) {
     const span = (i < n - 1 ? clips[i].duration + tdur(i + 1) : clips[i].duration) + 2 * frame;
-    inputs.push("-loop", "1", "-t", span.toFixed(3), "-i", paths[i]);
-    parts.push(`[${i}:v]${vfChain(width, height, fps)}[v${i}]`);
+    if (motTypes[i] === "none") {
+      inputs.push("-loop", "1", "-t", span.toFixed(3), "-i", paths[i]);
+      parts.push(stillStream(i, width, height, fps));
+    } else {
+      // Single frame in; zoompan generates the animation (see zoomStream).
+      inputs.push("-i", paths[i]);
+      parts.push(zoomStream(i, width, height, fps, motTypes[i], motionAmount, Math.round(span * fps)));
+    }
   }
   let last = "v0";
   for (let k = 1; k < n; k++) {
@@ -118,17 +147,21 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
 // spec: { clips, width, height, fps, transitions, transitionDuration, fadeIn, fadeOut }
 // io:   { paths: string[] (per-clip basenames), audioName, capChain, encoder }
 export function buildRenderPlan(spec, io) {
-  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, fadeIn = 0, fadeOut = 0 } = spec;
+  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, fadeIn = 0, fadeOut = 0 } = spec;
   const { paths, audioName, capChain = "", encoder = "libx264" } = io;
   const total = clips.length ? clips[clips.length - 1].start + clips[clips.length - 1].duration : 0;
   const hasTransition = Array.isArray(transitions) && clips.length >= 2 &&
     transitions.some((t, i) => i > 0 && t && t !== "cut");
+  // Per-clip zoom also needs the filter-graph path (concat can't zoom per clip).
+  const hasMotion = Array.isArray(motions) &&
+    motions.some((m, i) => m && m !== "none" && clips[i] && !clips[i].gap);
+  const useGraph = hasTransition || hasMotion;
   const common = { clips, paths, audioName, width, height, fps, fadeIn, fadeOut, total, capChain, encoder };
   const filterFiles = [];
-  const args = hasTransition
-    ? graphArgs({ ...common, transitions, transitionDuration }, filterFiles)
+  const args = useGraph
+    ? graphArgs({ ...common, transitions, transitionDuration, motions, motionAmount }, filterFiles)
     : concatArgs(common, filterFiles);
-  return { mode: hasTransition ? "graph" : "concat", total, args, filterFiles };
+  return { mode: useGraph ? "graph" : "concat", total, args, filterFiles };
 }
 
 // Probe which H.264 encoder to use: try each hardware encoder with a tiny test
