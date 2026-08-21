@@ -21,17 +21,17 @@ const EXE_DIR = path.dirname(process.execPath);
 const FF_BIN = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
 const PACKAGED = fssync.existsSync(path.join(EXE_DIR, FF_BIN));
 // A finished render is auto-saved to OUTPUT_DIR (in addition to the browser
-// download). Termux's start.sh sets it explicitly; the packaged desktop app
-// defaults it to <Downloads>/AutoEditor so a render always lands on disk even if
-// the browser was refreshed/closed at the finish moment. Dev-from-source leaves
-// it unset (no surprise files in your Downloads while developing).
+// download), so a render always lands on disk even if the browser was
+// refreshed/closed at the finish moment. Termux's start.sh sets it explicitly;
+// everywhere else (packaged desktop app AND dev-from-source) it defaults to
+// <Downloads>/AutoEditor. Set OUTPUT_DIR yourself to override the folder.
 function defaultOutputDir() {
   const home = os.homedir();
   const dl = path.join(home, "Downloads");
   const base = fssync.existsSync(dl) ? dl : home;
   return path.join(base, "AutoEditor");
 }
-const OUTPUT_DIR = process.env.OUTPUT_DIR || (PACKAGED ? defaultOutputDir() : null);
+const OUTPUT_DIR = process.env.OUTPUT_DIR || defaultOutputDir();
 // Resource limits so a render doesn't hog the machine (mostly for phones/Termux).
 // RENDER_THREADS caps ffmpeg's thread count (0/unset = ffmpeg's default = all cores);
 // RENDER_NICE runs ffmpeg at that OS priority on Unix (0=normal … 19=lowest).
