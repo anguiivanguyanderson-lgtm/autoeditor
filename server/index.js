@@ -20,6 +20,11 @@ const EXE_DIR = path.dirname(process.execPath);
 // Bundled ffmpeg is "ffmpeg.exe" on Windows, "ffmpeg" on macOS/Linux.
 const FF_BIN = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
 const PACKAGED = fssync.existsSync(path.join(EXE_DIR, FF_BIN));
+// When OUTPUT_DIR is set (the Termux start.sh sets it), a finished render is
+// auto-saved there — so on mobile you can close the browser after hitting
+// Render and the video still gets written to a folder. Unset on desktop, where
+// the browser-download flow is used unchanged.
+const OUTPUT_DIR = process.env.OUTPUT_DIR || null;
 // Job temp dirs live in the OS temp folder, NOT under the project (which may be
 // inside OneDrive/Dropbox and lock files during sync).
 const TMP = path.join(os.tmpdir(), "autoeditor-render");
@@ -120,9 +125,23 @@ app.post("/render", newJob, upload.any(), async (req, res) => {
       job.proc = proc;
 
       done.then((outPath) => {
-        job.status = "done"; job.outPath = outPath; job.progress = 1;
+        job.status = "done"; job.progress = 1;
+        // Auto-save to a real folder (mobile: survives closing the browser).
+        let saved = null;
+        if (OUTPUT_DIR) {
+          try {
+            fssync.mkdirSync(OUTPUT_DIR, { recursive: true });
+            const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+            saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}.mp4`);
+            fssync.copyFileSync(outPath, saved);
+            console.log("Saved video to " + saved);
+            notify("AutoEditor — video saved", saved);
+          } catch (e) { console.warn("Could not save to OUTPUT_DIR: " + e.message); saved = null; }
+        }
+        job.outPath = saved || outPath; // serve the saved copy if we made one
+        job.saved = saved;
         broadcast(job, { progress: 1 });
-        broadcast(job, { done: true });
+        broadcast(job, { done: true, saved });
         endListeners(job);
       }).catch((err) => {
         if (job.status === "cancelled") return;
@@ -194,6 +213,13 @@ if (fssync.existsSync(FRONTEND_DIR)) app.use(express.static(FRONTEND_DIR));
 
 // Open the user's default browser once the server is up (only when launched via
 // start.bat, which sets OPEN_BROWSER=1 — never during tests).
+// Best-effort Android notification (Termux:API). No-op if the command is absent.
+function notify(title, content) {
+  try {
+    spawn("termux-notification", ["--title", title, "--content", content], { detached: true, stdio: "ignore" }).unref();
+  } catch { /* not available */ }
+}
+
 function openBrowser(url) {
   try {
     if (process.platform === "win32") spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();

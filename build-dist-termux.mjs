@@ -43,8 +43,25 @@ export CAPTION_FONT_PATH="$(pwd)/caption.ttf"
 export FRONTEND_DIR="$(pwd)/out"
 export OPEN_BROWSER=0
 export PORT="\${PORT:-4000}"
+
+# Finished videos are auto-saved here (so you can close the browser after
+# hitting Render and the file is still written). Prefer shared storage so the
+# phone's Gallery/Files can see it.
+if [ -d "$HOME/storage/shared" ]; then
+  export OUTPUT_DIR="$HOME/storage/shared/AutoEditor"
+else
+  export OUTPUT_DIR="$HOME/AutoEditor-output"
+fi
+mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
+
+# Keep the CPU running during long renders even if the screen turns off.
+termux-wake-lock 2>/dev/null || true
+trap 'termux-wake-unlock 2>/dev/null || true' EXIT
+
 echo "AutoEditor is running."
 echo "Open  http://localhost:\${PORT}  in Chrome/Firefox on this phone."
+echo "Finished videos are saved to:  $OUTPUT_DIR"
+echo "You can close the browser after hitting Render — it keeps rendering and saves there."
 echo "Keep this Termux session open. Press Ctrl+C to stop."
 node bundle.cjs
 `;
