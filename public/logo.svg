@@ -1,46 +1,16 @@
 <svg width="512" height="512" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- app-theme squircle: dark navy (elev to bg) -->
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1c2230"/>
-      <stop offset="1" stop-color="#0a0c10"/>
-    </linearGradient>
-    <radialGradient id="sheen" cx="0.5" cy="0.05" r="0.9">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.08"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
-    <!-- clip tile: the app accent blue -->
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#7d99ff"/>
       <stop offset="1" stop-color="#4a68e6"/>
     </linearGradient>
-    <!-- amber play + playhead: the app's "now" signal -->
-    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffc978"/>
-      <stop offset="1" stop-color="#f5a623"/>
-    </linearGradient>
   </defs>
 
-  <!-- app-icon squircle -->
-  <rect x="2" y="2" width="124" height="124" rx="30" fill="url(#bg)"/>
-  <rect x="2" y="2" width="124" height="124" rx="30" fill="url(#sheen)"/>
-  <rect x="2.5" y="2.5" width="123" height="123" rx="29.5" fill="none"
-        stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>
+  <!-- simple play button: accent-blue squircle, no dark backdrop -->
+  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#tile)"/>
 
-  <!-- back frame, offset behind — the "stack of clips" nod (same family as Flow Automator) -->
-  <rect x="28" y="26" width="52" height="52" rx="11" fill="none"
-        stroke="#5b7cfa" stroke-opacity="0.45" stroke-width="4"/>
-
-  <!-- front clip tile (accent blue) -->
-  <rect x="46" y="44" width="58" height="58" rx="13" fill="url(#tile)"/>
-  <!-- play glyph in amber: the "video / now" mark -->
-  <path d="M68 58 L88 73 L68 88 Z" fill="url(#amber)"/>
-
-  <!-- timeline scrubber under the tile: track + amber playhead (AutoEditor's "now") -->
-  <rect x="30" y="110" width="68" height="4" rx="2" fill="#8a93a3" fill-opacity="0.45"/>
-  <circle cx="58" cy="112" r="5" fill="url(#amber)"/>
-
-  <!-- ✦ spark — the TryAIToday brand accent, in the app's amber -->
-  <path d="M99 24 L101.3 30.8 L108 33 L101.3 35.2 L99 42 L96.7 35.2 L90 33 L96.7 30.8 Z"
-        fill="url(#amber)"/>
+  <!-- white play triangle -->
+  <path d="M52 40 L92 64 L52 88 Z"
+        fill="#ffffff" stroke="#ffffff" stroke-width="8"
+        stroke-linejoin="round" stroke-linecap="round"/>
 </svg>
