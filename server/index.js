@@ -256,18 +256,24 @@ if (fssync.existsSync(FRONTEND_DIR)) app.use(express.static(FRONTEND_DIR));
 
 // Open the user's default browser once the server is up (only when launched via
 // start.bat, which sets OPEN_BROWSER=1 — never during tests).
-// Best-effort Android notification via Termux:API. No-op if unavailable.
-function termuxNotify(args) {
-  try { spawn("termux-notification", args, { detached: true, stdio: "ignore" }).unref(); }
-  catch { /* not available */ }
+// Fire-and-forget a command; never let a missing binary crash us. spawn emits
+// an async 'error' event (not a throw) when the command is absent, so we MUST
+// attach an error listener or Node treats it as unhandled and exits.
+function spawnQuiet(cmd, args) {
+  try {
+    const p = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    p.on("error", () => { /* command not installed — ignore */ });
+    p.unref();
+  } catch { /* ignore */ }
 }
 
+// Best-effort Android notification via Termux:API. No-op if unavailable.
+function termuxNotify(args) { spawnQuiet("termux-notification", args); }
+
 function openBrowser(url) {
-  try {
-    if (process.platform === "win32") spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
-    else if (process.platform === "darwin") spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-    else spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
-  } catch { /* ignore */ }
+  if (process.platform === "win32") spawnQuiet("cmd", ["/c", "start", "", url]);
+  else if (process.platform === "darwin") spawnQuiet("open", [url]);
+  else spawnQuiet("xdg-open", [url]);
 }
 
 app.listen(PORT, () => {
