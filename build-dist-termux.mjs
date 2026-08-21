@@ -23,9 +23,17 @@ function run(cmd, cwd = ROOT) { console.log("> " + cmd); execSync(cmd, { cwd, st
 const START_SH = `#!/usr/bin/env bash
 # AutoEditor for Android (Termux).  Run:  bash start.sh
 cd "$(dirname "$0")"
-if ! command -v node >/dev/null 2>&1; then echo "node not found -> run: pkg install nodejs"; exit 1; fi
+
+# First run: auto-install Node.js + ffmpeg if they're missing (needs internet).
+if ! command -v node >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "First run: installing Node.js and ffmpeg (one-time, needs internet)..."
+  yes | pkg update >/dev/null 2>&1 || pkg update -y
+  pkg install -y nodejs ffmpeg
+fi
+
+if ! command -v node >/dev/null 2>&1; then echo "Node.js install failed. Try: pkg install nodejs"; exit 1; fi
 FF="$(command -v ffmpeg)"
-if [ -z "$FF" ]; then echo "ffmpeg not found -> run: pkg install ffmpeg"; exit 1; fi
+if [ -z "$FF" ]; then echo "ffmpeg install failed. Try: pkg install ffmpeg"; exit 1; fi
 export FFMPEG_PATH="$FF"
 export CAPTION_FONT_PATH="$(pwd)/caption.ttf"
 export FRONTEND_DIR="$(pwd)/out"
@@ -40,26 +48,27 @@ node bundle.cjs
 const README = `AutoEditor for Android (via Termux)
 Runs entirely on your phone. Nothing is uploaded.
 
-ONE-TIME SETUP
+SETUP
 1. Install Termux from F-Droid (https://f-droid.org).
    Do NOT use the old Play Store version.
-2. Open Termux and run:
-     pkg update
-     pkg install nodejs ffmpeg
-3. Give Termux file access (once):
+2. Open Termux and give it file access (once):
      termux-setup-storage
-4. Copy this "AutoEditor-android" folder into Termux, e.g. into
-   ~/storage/downloads or your home (~).
-
-RUN
-     cd AutoEditor-android
+3. Go to this folder (e.g. if it's in Downloads):
+     cd ~/storage/downloads/AutoEditor-android
+4. Run:
      bash start.sh
-   Then open  http://localhost:4000  in Chrome or Firefox on the same phone.
+
+That's it. On the first run start.sh installs Node.js + ffmpeg for you
+(one-time, needs internet), then starts the app.
+
+USE
+   Open  http://localhost:4000  in Chrome or Firefox on the same phone.
    To stop: return to Termux and press Ctrl+C.
+   Next time, just run "bash start.sh" again.
 
 NOTES
 - Rendering runs on the phone's CPU; short/medium videos work best.
-- After setup, no internet is needed.
+- After the one-time setup, no internet is needed.
 `;
 
 async function main() {
