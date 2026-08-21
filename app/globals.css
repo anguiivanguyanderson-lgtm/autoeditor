@@ -86,6 +86,7 @@ body {
 .brand__dot {
   width: 9px; height: 9px; border-radius: 50%; background: var(--amber);
 }
+.brand__logo { width: 28px; height: 28px; display: block; border-radius: 7px; flex: none; }
 .brand__name { font-size: 16px; letter-spacing: -0.2px; }
 .brand__pre { color: var(--muted); font-weight: 600; }
 .brand__tag {
@@ -112,6 +113,20 @@ body {
 .ext-link:hover { background: rgba(245, 166, 35, .18); border-color: var(--amber); }
 .ext-link:active { transform: translateY(1px); }
 .ext-link__icon { font-size: 14px; line-height: 1; }
+
+/* Discord community link — same pill shape as the extension link, blurple. */
+.dc-link {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  padding: 8px 12px; border-radius: 10px; white-space: nowrap;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+  color: #c7cdf7;
+  background: rgba(88, 101, 242, .12);
+  border: 1px solid rgba(88, 101, 242, .40);
+  transition: background .15s, border-color .15s, transform .05s;
+}
+.dc-link:hover { background: rgba(88, 101, 242, .22); border-color: #5865f2; color: #eef0ff; }
+.dc-link:active { transform: translateY(1px); }
+.dc-link__icon { width: 16px; height: 16px; flex: none; }
 
 /* ---------- Dropzone ---------- */
 .dz {
@@ -696,9 +711,9 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
      full-width or running off-screen. */
   .bar { padding: 10px 12px; }
   .brand__tag { display: none; }
-  /* The extension link + import chips take their own full-width row and stack. */
+  /* The Discord + extension links + import chips take their own full-width row. */
   .bar__actions { width: 100%; flex-wrap: wrap; }
-  .ext-link { flex: 1; justify-content: center; }
+  .dc-link, .ext-link { flex: 1; justify-content: center; }
   .bar__io { width: 100%; flex-wrap: nowrap; }
   .bar__io > .dz { flex: 1; min-width: 0; }
   .dz--compact .dz__title { max-width: none; }

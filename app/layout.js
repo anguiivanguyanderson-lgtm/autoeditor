@@ -1,6 +1,7 @@
 export const metadata = {
-  title: "TryAIToday AutoEditor — image · voiceover sync",
-  description: "Sync timestamp-named images to a voiceover and export an MP4, entirely in your browser.",
+  title: "TryAIToday AutoEditor — image + video · voiceover sync",
+  description: "Sync timestamp-named images and video clips to a voiceover and export an MP4, on your device.",
+  icons: { icon: "/logo.svg" },
 };
 
 export default function RootLayout({ children }) {
