@@ -58,6 +58,7 @@ export default function Editor({
   const [selectedCut, setSelectedCut] = useState(null); // selected clip name (drives transition)
   const [currentType, setCurrentType] = useState("fade");
   const [inspect, setInspect] = useState(null);   // slot name open in the inspector
+  const [dismissedWarn, setDismissedWarn] = useState(() => new Set()); // hidden warning texts
   const [pendFile, setPendFile] = useState(null);  // chosen replacement, not yet applied
   const [pendUrl, setPendUrl] = useState(null);
   const [mixMode, setMixMode] = useState(false); // Transitions panel in random-mix mode
@@ -379,11 +380,29 @@ export default function Editor({
           <audio ref={audioRef} src={audioUrl} hidden />
         </div>
 
-        {warnings.length > 0 && (
-          <div className="notes notes--compact">
-            {warnings.map((w, i) => <div className="note" key={i}>{w}</div>)}
-          </div>
-        )}
+        {(() => {
+          const shown = warnings.filter((w) => !dismissedWarn.has(w));
+          if (!shown.length) return null;
+          return (
+            <div className="notes notes--compact">
+              {shown.length > 1 && (
+                <button
+                  type="button" className="notes__clear"
+                  onClick={() => setDismissedWarn(new Set(warnings))}
+                >Dismiss all ({shown.length})</button>
+              )}
+              {shown.map((w) => (
+                <div className="note note--dismissable" key={w}>
+                  <span>{w}</span>
+                  <button
+                    type="button" className="note__x" aria-label="Dismiss"
+                    onClick={() => setDismissedWarn((prev) => new Set(prev).add(w))}
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         <Timeline
           clips={clips}

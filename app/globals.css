@@ -327,6 +327,17 @@ body {
   border-radius: 8px; padding: 9px 12px;
 }
 .note--bad { color: #ffb4b4; background: rgba(255,107,107,.08); border-color: rgba(255,107,107,.28); }
+.note--dismissable { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.note__x {
+  flex: none; font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+  color: inherit; background: transparent; border: none; opacity: .7; padding: 2px 4px;
+}
+.note__x:hover { opacity: 1; }
+.notes__clear {
+  align-self: flex-end; font: inherit; font-size: 11.5px; font-weight: 600;
+  color: #ffcf8f; background: transparent; border: none; cursor: pointer;
+  text-decoration: underline; padding: 0;
+}
 
 /* ---------- Timeline (signature) ---------- */
 .tl {
