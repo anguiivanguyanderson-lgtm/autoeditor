@@ -198,6 +198,10 @@ export default function Editor({
           if (v && pr) {
             const srcTime = Math.min(vinfo.duration || 0, Math.max(0, pr.trimStart + (t - clip.start) * pr.speed));
             if (playing) {
+              // Play the clip's own audio at its set volume, mixed with the voiceover.
+              const clipVol = volumeByName[clip.name] == null ? 0.5 : volumeByName[clip.name];
+              v.volume = Math.min(1, Math.max(0, clipVol));
+              v.muted = clipVol <= 0;
               v.playbackRate = Math.min(16, Math.max(0.0625, pr.speed));
               if (v.paused) { try { v.currentTime = srcTime; } catch { /* ignore */ } v.play().catch(() => {}); }
               else if (Math.abs(v.currentTime - srcTime) > 0.35) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
@@ -241,7 +245,7 @@ export default function Editor({
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
     }
   }, [clips, imageEls, transitionsByName, transitionDuration, motionByName, motionAmount,
-      fadeIn, fadeOut, duration, exportDuration, playing, videoInfoByName, videoParams,
+      fadeIn, fadeOut, duration, exportDuration, playing, videoInfoByName, videoParams, volumeByName,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   useEffect(() => { drawRef.current = draw; }, [draw]);
