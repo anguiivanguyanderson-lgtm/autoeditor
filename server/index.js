@@ -17,7 +17,9 @@ catch { MODULE_DIR = process.cwd(); }
 // so double-clicking the exe works (not just start.bat), and to auto-open the
 // browser in that case.
 const EXE_DIR = path.dirname(process.execPath);
-const PACKAGED = fssync.existsSync(path.join(EXE_DIR, "ffmpeg.exe"));
+// Bundled ffmpeg is "ffmpeg.exe" on Windows, "ffmpeg" on macOS/Linux.
+const FF_BIN = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+const PACKAGED = fssync.existsSync(path.join(EXE_DIR, FF_BIN));
 // Job temp dirs live in the OS temp folder, NOT under the project (which may be
 // inside OneDrive/Dropbox and lock files during sync).
 const TMP = path.join(os.tmpdir(), "autoeditor-render");

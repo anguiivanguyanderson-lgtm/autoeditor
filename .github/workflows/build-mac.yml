@@ -1,0 +1,42 @@
+name: Build macOS app
+
+# Run manually from the repo's Actions tab (or on a version tag).
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon (arm64)
+            arch: arm64
+          - runner: macos-13   # Intel (x64)
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend deps
+        run: npm install
+
+      - name: Install server deps (pulls the mac ffmpeg binary)
+        run: npm install
+        working-directory: server
+
+      - name: Build macOS distributable
+        run: node build-dist-mac.mjs
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoEditor-mac-${{ matrix.arch }}
+          path: dist/AutoEditor-mac-*.zip
+          if-no-files-found: error

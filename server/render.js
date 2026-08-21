@@ -19,8 +19,10 @@ catch { MODULE_DIR = process.cwd(); }
 // Priority: explicit env > next to the exe > dev defaults.
 const EXE_DIR = path.dirname(process.execPath);
 const nextToExe = (name) => path.join(EXE_DIR, name);
+// Bundled ffmpeg is "ffmpeg.exe" on Windows, "ffmpeg" on macOS/Linux.
+const FF_BIN = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
 const FFMPEG = process.env.FFMPEG_PATH
-  || (existsSync(nextToExe("ffmpeg.exe")) ? nextToExe("ffmpeg.exe") : ffmpegStatic);
+  || (existsSync(nextToExe(FF_BIN)) ? nextToExe(FF_BIN) : ffmpegStatic);
 const FONT_SRC = process.env.CAPTION_FONT_PATH
   || (existsSync(nextToExe("caption.ttf")) ? nextToExe("caption.ttf") : path.join(MODULE_DIR, "assets", "caption.ttf"));
 
