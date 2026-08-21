@@ -71,8 +71,7 @@ const README = `AutoEditor for Android (via Termux)
 Runs entirely on your phone. Nothing is uploaded.
 
 SETUP
-1. Install Termux from F-Droid (https://f-droid.org).
-   Do NOT use the old Play Store version.
+1. Install Termux from the Google Play Store.
 2. Open Termux and give it file access (once):
      termux-setup-storage
 3. Go to this folder (e.g. if it's in Downloads):

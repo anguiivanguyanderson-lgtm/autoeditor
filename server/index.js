@@ -134,7 +134,7 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
     const job = {
       dir: req.jobDir, proc: null, total: 0,
       progress: 0, status: "running", outPath: null, error: null, listeners: new Set(),
-      _loggedPct: -5, _notifiedPct: -10,
+      _loggedPct: -5,
     };
     jobs.set(req.jobId, job);
     activeJobId = req.jobId;
@@ -151,14 +151,10 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
       const { proc, done } = runRender(req.jobDir, plan.args, plan.total, (p) => {
         job.progress = p;
         broadcast(job, { progress: p });
-        // Also surface progress where you can see it without the browser: the
-        // Termux console, and (if Termux:API is installed) an ongoing notification.
+        // Surface progress where you can see it without the browser: the Termux
+        // console (switch to Termux to watch it).
         const pct = Math.floor(p * 100);
         if (pct >= job._loggedPct + 5) { job._loggedPct = pct; console.log(`Rendering… ${pct}%`); }
-        if (pct >= job._notifiedPct + 10) {
-          job._notifiedPct = pct;
-          termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor rendering", "--content", `${pct}%`, "--ongoing", "--alert-once"]);
-        }
       });
       job.proc = proc;
 
@@ -173,7 +169,6 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
             saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}-${req.jobId.slice(0, 6)}.mp4`);
             fssync.copyFileSync(outPath, saved);
             console.log("Saved video to " + saved);
-            termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor — video saved", "--content", saved]);
           } catch (e) { console.warn("Could not save to OUTPUT_DIR: " + e.message); saved = null; }
         }
         job.outPath = saved || outPath; // serve the saved copy if we made one
@@ -193,7 +188,6 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
         }
         job.status = "error"; job.error = String(err.message || err);
         console.error("Render failed: " + job.error.split("\n")[0]);
-        termuxNotify(["--id", "autoeditor-render", "--title", "AutoEditor — render failed", "--content", job.error.split("\n")[0]]);
         broadcast(job, { error: job.error });
         endListeners(job);
         clearActive(req.jobId);
@@ -266,9 +260,6 @@ function spawnQuiet(cmd, args) {
     p.unref();
   } catch { /* ignore */ }
 }
-
-// Best-effort Android notification via Termux:API. No-op if unavailable.
-function termuxNotify(args) { spawnQuiet("termux-notification", args); }
 
 function openBrowser(url) {
   if (process.platform === "win32") spawnQuiet("cmd", ["/c", "start", "", url]);
