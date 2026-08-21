@@ -20,11 +20,18 @@ const EXE_DIR = path.dirname(process.execPath);
 // Bundled ffmpeg is "ffmpeg.exe" on Windows, "ffmpeg" on macOS/Linux.
 const FF_BIN = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
 const PACKAGED = fssync.existsSync(path.join(EXE_DIR, FF_BIN));
-// When OUTPUT_DIR is set (the Termux start.sh sets it), a finished render is
-// auto-saved there — so on mobile you can close the browser after hitting
-// Render and the video still gets written to a folder. Unset on desktop, where
-// the browser-download flow is used unchanged.
-const OUTPUT_DIR = process.env.OUTPUT_DIR || null;
+// A finished render is auto-saved to OUTPUT_DIR (in addition to the browser
+// download). Termux's start.sh sets it explicitly; the packaged desktop app
+// defaults it to <Downloads>/AutoEditor so a render always lands on disk even if
+// the browser was refreshed/closed at the finish moment. Dev-from-source leaves
+// it unset (no surprise files in your Downloads while developing).
+function defaultOutputDir() {
+  const home = os.homedir();
+  const dl = path.join(home, "Downloads");
+  const base = fssync.existsSync(dl) ? dl : home;
+  return path.join(base, "AutoEditor");
+}
+const OUTPUT_DIR = process.env.OUTPUT_DIR || (PACKAGED ? defaultOutputDir() : null);
 // Resource limits so a render doesn't hog the machine (mostly for phones/Termux).
 // RENDER_THREADS caps ffmpeg's thread count (0/unset = ffmpeg's default = all cores);
 // RENDER_NICE runs ffmpeg at that OS priority on Unix (0=normal … 19=lowest).
@@ -275,6 +282,7 @@ function openBrowser(url) {
 
 app.listen(PORT, () => {
   console.log(`AutoEditor running on http://localhost:${PORT}`);
+  if (OUTPUT_DIR) console.log(`Finished videos are also saved to: ${OUTPUT_DIR}`);
   console.log("Keep this window open. Close it (or press Ctrl+C) to stop the app.");
   // Auto-open when launched via start.bat (OPEN_BROWSER=1) or by double-clicking
   // the packaged exe. OPEN_BROWSER=0 disables it.

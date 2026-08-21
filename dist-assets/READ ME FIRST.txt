@@ -17,6 +17,12 @@ HOW TO START
 HOW TO STOP
   - Close the black window, or press Ctrl+C in it.
 
+WHERE YOUR VIDEOS GO
+  - Each finished render downloads through your browser as usual, AND is also
+    auto-saved to:  <your Downloads>\AutoEditor\
+    So even if you refresh or close the tab right as it finishes, the MP4 is
+    safely on disk. The black window prints the exact folder on startup.
+
 NOTES
   - First launch takes a few seconds while it detects your graphics hardware.
   - A dedicated/integrated GPU (Intel/NVIDIA/AMD) is used automatically for a
