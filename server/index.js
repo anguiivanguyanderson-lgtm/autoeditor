@@ -135,7 +135,7 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
     const fileMap = {};
     for (const f of req.files) fileMap[f.fieldname] = f.filename;
 
-    const { paths, audioName, capChain } = await writeInputs(req.jobDir, spec, fileMap);
+    const { paths, audioName, capChain, audible } = await writeInputs(req.jobDir, spec, fileMap);
 
     const job = {
       dir: req.jobDir, proc: null, total: 0,
@@ -149,7 +149,7 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
     // Render with the chosen encoder; if a hardware encode fails on this machine,
     // retry once with CPU libx264 so it always produces a valid video.
     const launch = (encoder) => {
-      const plan = buildRenderPlan(spec, { paths, audioName, capChain, encoder });
+      const plan = buildRenderPlan(spec, { paths, audioName, capChain, encoder, audible });
       // Write the filtergraph to disk so ffmpeg reads it from a file (avoids
       // over-long command lines when captions add many drawtext filters).
       for (const f of plan.filterFiles) fssync.writeFileSync(path.join(req.jobDir, f.name), f.text);

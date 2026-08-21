@@ -21,6 +21,43 @@ function loadImageEl(file) {
   });
 }
 
+// Load a video clip as a still-poster Image (so the timeline/canvas draw it just
+// like a photo) while carrying the video's URL + duration for the trim scrubber
+// and export. img.url = poster (drawable), img.videoUrl = the actual video.
+function loadVideoEl(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const finish = (posterSrc, w, h, dur) => {
+      const img = new Image();
+      img.onload = () => {
+        img.url = posterSrc; img.fileName = file.name;
+        img.isVideo = true; img.videoUrl = url; img.videoDuration = dur || 0;
+        resolve(img);
+      };
+      img.onerror = () => { // poster failed — resolve a bare marker so it still imports
+        img.url = null; img.fileName = file.name; img.isVideo = true;
+        img.videoUrl = url; img.videoDuration = dur || 0; resolve(img);
+      };
+      img.src = posterSrc || url;
+    };
+    const v = document.createElement("video");
+    v.preload = "metadata"; v.muted = true; v.playsInline = true; v.src = url;
+    v.onloadeddata = () => {
+      const grab = () => {
+        try {
+          const c = document.createElement("canvas");
+          c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
+          c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+          finish(c.toDataURL("image/jpeg", 0.82), c.width, c.height, v.duration);
+        } catch { finish(null, v.videoWidth, v.videoHeight, v.duration); }
+      };
+      v.onseeked = grab;
+      try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); } catch { grab(); }
+    };
+    v.onerror = () => finish(null, 0, 0, 0);
+  });
+}
+
 function fmtTime(sec) {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -68,6 +105,8 @@ export default function Home() {
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
   const [motionByName, setMotionByName] = useState({}); // clip name -> zoomin | zoomout
   const [motionAmount, setMotionAmount] = useState(0.08); // Ken Burns zoom depth (0–0.2)
+  const [trimByName, setTrimByName] = useState({});   // video clip name -> in-point seconds
+  const [volumeByName, setVolumeByName] = useState({}); // video clip name -> 0..1 (default 0.5)
   const [trimEnd, setTrimEnd] = useState(0); // export end point (0 = untrimmed / full audio)
   const [captionRaw, setCaptionRaw] = useState(null); // uploaded transcript text
   const [captionName, setCaptionName] = useState(null);
@@ -106,10 +145,13 @@ export default function Home() {
   // Import images, merged by timestamp: a file whose timestamp matches an
   // existing slot fills/replaces it; otherwise it becomes a new slot.
   const addImages = useCallback(async (fileList) => {
-    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (!files.length) return;
     const loaded = await Promise.all(
-      files.map(async (f) => ({ file: f, seconds: parseTimestampName(f.name), img: await loadImageEl(f) }))
+      files.map(async (f) => ({
+        file: f, seconds: parseTimestampName(f.name),
+        img: f.type.startsWith("video/") ? await loadVideoEl(f) : await loadImageEl(f),
+      }))
     );
     commitDoc((d) => {
       const next = d.slots.map((s) => ({ ...s }));
@@ -125,10 +167,12 @@ export default function Home() {
     });
   }, [commitDoc]);
 
-  // Swap the image in one slot, keeping its timestamp.
+  // Swap the image/video in one slot, keeping its timestamp.
   const replaceImage = useCallback(async (id, file) => {
-    if (!file || !file.type.startsWith("image/")) return;
-    const img = await loadImageEl(file);
+    if (!file) return;
+    const isVid = file.type.startsWith("video/");
+    if (!isVid && !file.type.startsWith("image/")) return;
+    const img = isVid ? await loadVideoEl(file) : await loadImageEl(file);
     commitDoc((d) => ({
       ...d,
       slots: d.slots.map((s) => (s.id === id ? { ...s, file, img, empty: false } : s)),
@@ -150,8 +194,10 @@ export default function Home() {
 
   // Fill a gap. LEAD_IN adds a new slot at 0; otherwise fill the empty slot.
   const fillGap = useCallback(async (name, file) => {
-    if (!file || !file.type.startsWith("image/")) return;
-    const img = await loadImageEl(file);
+    if (!file) return;
+    const isVid = file.type.startsWith("video/");
+    if (!isVid && !file.type.startsWith("image/")) return;
+    const img = isVid ? await loadVideoEl(file) : await loadImageEl(file);
     commitDoc((d) => {
       if (name === LEAD_IN) {
         return { ...d, slots: [...d.slots, { id: nextId(), seconds: 0, file, img, empty: false }] };
@@ -222,6 +268,12 @@ export default function Home() {
   const setMotion = useCallback((name, type) => {
     setMotionByName((prev) => ({ ...prev, [name]: type }));
   }, []);
+  const setTrim = useCallback((name, seconds) => {
+    setTrimByName((prev) => ({ ...prev, [name]: Math.max(0, +seconds || 0) }));
+  }, []);
+  const setVolume = useCallback((name, vol) => {
+    setVolumeByName((prev) => ({ ...prev, [name]: Math.min(1, Math.max(0, +vol || 0)) }));
+  }, []);
   const applyMotionAll = useCallback((type, names) => {
     setMotionByName(() => { const next = {}; for (const n of names) next[n] = type; return next; });
   }, []);
@@ -266,9 +318,24 @@ export default function Home() {
     })),
     [slots]
   );
+  // Images and videos are uploaded on separate maps (the backend tells them apart
+  // by extension anyway, but this keeps the client render spec explicit).
   const imagesByName = useMemo(() => {
     const m = {};
-    for (const s of slots) if (!s.empty && s.file) m[s.id] = s.file;
+    for (const s of slots) if (!s.empty && s.file && !(s.img && s.img.isVideo)) m[s.id] = s.file;
+    return m;
+  }, [slots]);
+  const videosByName = useMemo(() => {
+    const m = {};
+    for (const s of slots) if (!s.empty && s.file && s.img && s.img.isVideo) m[s.id] = s.file;
+    return m;
+  }, [slots]);
+  // Video URL + duration per clip, for the trim scrubber in the inspector.
+  const videoInfoByName = useMemo(() => {
+    const m = {};
+    for (const s of slots) if (!s.empty && s.img && s.img.isVideo) {
+      m[s.id] = { url: s.img.videoUrl, duration: s.img.videoDuration || 0 };
+    }
     return m;
   }, [slots]);
   const imageEls = useMemo(() => {
@@ -325,11 +392,16 @@ export default function Home() {
       const exportClips = trimClips(clips, exportDuration);
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const motions = exportClips.map((c) => motionByName[c.name] || "none");
+      // Per-clip video params (parallel to exportClips). Images get 0/none.
+      const trims = exportClips.map((c) => trimByName[c.name] || 0);
+      const volumes = exportClips.map((c) =>
+        Object.prototype.hasOwnProperty.call(videosByName, c.name)
+          ? (volumeByName[c.name] == null ? 0.5 : volumeByName[c.name]) : 0);
       const captions = captionsOn && captionCues.length ? captionCues : null;
       const blob = await renderVideo({
-        clips: exportClips, imagesByName, audioFile,
+        clips: exportClips, imagesByName, videosByName, audioFile,
         width: dims.width, height: dims.height, fps,
-        transitions, transitionDuration, motions, motionAmount, fadeIn, fadeOut,
+        transitions, transitionDuration, motions, motionAmount, trims, volumes, fadeIn, fadeOut,
         captions, captionStyle, captionSize,
         onProgress: setProgress,
       });
@@ -339,8 +411,8 @@ export default function Home() {
     } finally {
       if (!cancelRef.current) setBusy(false);
     }
-  }, [clips, exportDuration, imagesByName, audioFile, dims, fps, transitionsByName, transitionDuration,
-      motionByName, motionAmount, fadeIn, fadeOut,
+  }, [clips, exportDuration, imagesByName, videosByName, audioFile, dims, fps, transitionsByName, transitionDuration,
+      motionByName, motionAmount, trimByName, volumeByName, fadeIn, fadeOut,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   return (
@@ -349,7 +421,7 @@ export default function Home() {
         <div className="brand">
           <span className="brand__dot" />
           <span className="brand__name"><span className="brand__pre">TryAIToday</span> AutoEditor</span>
-          <span className="brand__tag">image · voiceover sync</span>
+          <span className="brand__tag">image + video · voiceover sync</span>
         </div>
         <div className="bar__actions">
           <a
@@ -369,9 +441,9 @@ export default function Home() {
               filledLabel={audioFile ? audioFile.name : ""}
             />
             <Dropzone
-              compact multiple accept="image/*" onFiles={addImages} icon="▦"
-              title="Add images" filled={imageCount > 0}
-              filledLabel={imageCount ? `${imageCount} images` : ""}
+              compact multiple accept="image/*,video/*" onFiles={addImages} icon="▦"
+              title="Add media" filled={imageCount > 0}
+              filledLabel={imageCount ? `${imageCount} clips` : ""}
             />
           </div>
         </div>
@@ -403,9 +475,10 @@ export default function Home() {
         <section className="onboard">
           <h1 className="onboard__h">Sync your images to a voiceover, automatically.</h1>
           <p className="onboard__p">
-            Name each image with the second it appears — <code>0-03.png</code> cuts in at 0:03 —
-            then import them with your voiceover. Review everything below, then build the timeline.
-            Everything runs in your browser. Nothing is uploaded.
+            Name each image or video clip with the second it appears — <code>0-03.png</code> or
+            <code>0-03.mp4</code> cuts in at 0:03 — then import them with your voiceover. Video clips
+            can be trimmed, zoomed, and their sound mixed under the narration. Review everything below,
+            then build the timeline. Everything runs on your device. Nothing is uploaded.
           </p>
 
           <div className="onboard__zones">
@@ -417,9 +490,9 @@ export default function Home() {
               filledLabel={audioFile ? audioFile.name : ""}
             />
             <Dropzone
-              multiple accept="image/*" onFiles={addImages} icon="▦"
-              title={tray.length ? "Add more images" : "Storyboard images"}
-              hint="Named by timestamp (0-00, 0-06…). Drop files or whole folders — even several at once."
+              multiple accept="image/*,video/*" onFiles={addImages} icon="▦"
+              title={tray.length ? "Add more media" : "Storyboard images & video"}
+              hint="Images or video clips, named by timestamp (0-00, 0-06…). Drop files or whole folders — even several at once."
               filled={false}
             />
           </div>
@@ -482,6 +555,9 @@ export default function Home() {
           motionByName={motionByName} setMotion={setMotion}
           applyMotionAll={applyMotionAll} applyMotionAlternate={applyMotionAlternate}
           motionAmount={motionAmount} setMotionAmount={setMotionAmount}
+          videoInfoByName={videoInfoByName}
+          trimByName={trimByName} setTrim={setTrim}
+          volumeByName={volumeByName} setVolume={setVolume}
           trimEnd={exportDuration} setTrimEnd={setTrimEnd} exportDuration={exportDuration}
           undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
           captionCues={captionCues} captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}

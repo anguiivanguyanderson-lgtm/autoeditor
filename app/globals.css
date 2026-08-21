@@ -394,6 +394,11 @@ body {
   font-size: 11px; line-height: 1; color: #eef2ff;
   background: rgba(91,124,250,.85); padding: 2px 4px; border-radius: 4px;
 }
+.clip__video {
+  position: absolute; top: 4px; left: 4px; z-index: 1;
+  font-size: 10px; line-height: 1; color: #fff;
+  background: rgba(0,0,0,.6); padding: 3px 4px; border-radius: 4px;
+}
 
 /* Right-edge grip to roll the boundary with the next clip (change hold time). */
 .clip__resize {
@@ -593,6 +598,10 @@ body {
 }
 .modal__motion { margin: 0 0 14px; }
 .modal__motion-label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.modal__vid { margin: 0 0 14px; display: grid; gap: 12px; }
+.modal__slider { display: flex; align-items: center; gap: 10px; }
+.modal__slider input[type="range"] { flex: 1; }
+.modal__hint { display: block; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
 .modal__actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .mbtn {
   flex: 1; min-width: 130px; font: inherit; font-size: 13.5px; font-weight: 600;

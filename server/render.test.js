@@ -58,6 +58,47 @@ describe("buildRenderPlan", () => {
     expect(s).toContain("afade=t=out");
   });
 
+  it("routes a video clip through the graph path with -ss trim and a fit-to-slot filter", () => {
+    const vio = { ...io, paths: ["img0.png", "clip1.mp4", "img2.png"] };
+    const p = buildRenderPlan(
+      { ...base, clips, transitions: ["cut", "cut", "cut"], trims: [0, 1.5, 0], volumes: [0, 0.5, 0] },
+      { ...vio, audible: [false, true, false] }
+    );
+    expect(p.mode).toBe("graph");
+    // input seeked to the trim in-point
+    expect(p.args.join(" ")).toContain("-ss 1.500 -i clip1.mp4");
+    const fc = filterText(p);
+    // clone-last-frame fill + cut to the slot
+    expect(fc).toContain("tpad=stop_mode=clone");
+    expect(fc).toContain("trim=duration=");
+    // clip audio delayed to its start (3s) and volume-scaled, then mixed
+    expect(fc).toContain("volume=0.500");
+    expect(fc).toContain("adelay=3000|3000");
+    expect(fc).toContain("amix=inputs=2");
+  });
+
+  it("skips the audio mix for a video clip with no audio track (audible=false)", () => {
+    const vio = { ...io, paths: ["img0.png", "clip1.mp4", "img2.png"] };
+    const p = buildRenderPlan(
+      { ...base, clips, transitions: ["cut", "cut", "cut"], trims: [0, 0, 0], volumes: [0, 0.7, 0] },
+      { ...vio, audible: [false, false, false] }
+    );
+    const fc = filterText(p);
+    expect(fc).not.toContain("amix");
+    expect(fc).not.toContain("adelay");
+  });
+
+  it("applies a zoom to a video clip via zoompan (per-frame d=1)", () => {
+    const vio = { ...io, paths: ["clip0.mp4", "img1.png", "img2.png"] };
+    const p = buildRenderPlan(
+      { ...base, clips, transitions: ["cut", "cut", "cut"], motions: ["zoomin", "none", "none"], trims: [0, 0, 0], volumes: [0, 0, 0] },
+      { ...vio, audible: [false, false, false] }
+    );
+    const fc = filterText(p);
+    expect(fc).toContain("zoompan=");
+    expect(fc).toContain(":d=1:");
+  });
+
   it("puts the caption drawtext chain in the filter file, not the command line", () => {
     const p = buildRenderPlan(
       { ...base, clips, transitions: ["cut", "cut", "cut"] },

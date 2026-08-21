@@ -248,6 +248,9 @@ export default function Timeline({
                   onClick={(e) => onClipClick(c.name, e)}
                 >
                   <span className="clip__meta">{cDur.toFixed(1)}s</span>
+                  {el && el.isVideo && (
+                    <span className="clip__video" title="Video clip">▶</span>
+                  )}
                   {motionByName && motionByName[c.name] && motionByName[c.name] !== "none" && (
                     <span className="clip__motion" title={motionByName[c.name] === "zoomout" ? "Zoom out" : "Zoom in"}>
                       {motionByName[c.name] === "zoomout" ? "⤡" : "⤢"}

@@ -38,6 +38,29 @@ function stillStream(i, width, height, fps) {
   return `[${i}:v]${vfChain(width, height, fps)}[v${i}]`;
 }
 
+// Clips backed by a video file (vs a still image) are detected by extension —
+// the upload keeps the original extension, so paths tell us the kind.
+const VIDEO_RE = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
+const isVideoPath = (p) => !!p && VIDEO_RE.test(p);
+
+// A video clip stream. The input is seeked to the trim in-point with -ss, so
+// here we normalise to the canvas, clone the last frame to fill any slot longer
+// than the remaining footage (tpad), cut to exactly `span`, and reset PTS. With
+// motion, an animated Ken Burns zoom is layered on (zoompan d=1 = per-frame).
+function videoStream(i, W, H, fps, span, motionType, amount) {
+  const S = span.toFixed(3);
+  const base = `[${i}:v]${vfChain(W, H, fps)},` +
+    `tpad=stop_mode=clone:stop_duration=${S},trim=duration=${S},setpts=PTS-STARTPTS`;
+  if (!motionType || motionType === "none") return `${base}[v${i}]`;
+  const FR = Math.max(2, Math.round(span * fps));
+  const A = amount.toFixed(4);
+  const z = motionType === "zoomout" ? `1+${A}-(on/${FR - 1})*${A}` : `1+(on/${FR - 1})*${A}`;
+  const PW = Math.round(W * ZOOM_SS), PH = Math.round(H * ZOOM_SS);
+  return `${base},scale=${PW}:${PH}:flags=bicubic,` +
+    `zoompan=z='${z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${W}x${H}:fps=${fps},` +
+    `format=yuv420p[v${i}]`;
+}
+
 // A Ken Burns zoom stream: one image frame expanded to `frames` output frames by
 // zoompan (d=frames — the smooth form; looping with d=1 is what causes the shake).
 // The source is supersampled first so zoompan's integer crop rounding stays
@@ -101,7 +124,7 @@ function concatArgs({ audioName, width, height, fps, fadeIn, fadeOut, total, cap
   return args;
 }
 
-function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
+function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, trims, volumes, audible, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
   const n = clips.length;
   const frame = 1 / fps;
   const clampT = (d) => Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, d));
@@ -114,7 +137,12 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
   const parts = [];
   for (let i = 0; i < n; i++) {
     const span = (i < n - 1 ? clips[i].duration + tdur(i + 1) : clips[i].duration) + 2 * frame;
-    if (motTypes[i] === "none") {
+    if (isVideoPath(paths[i]) && !clips[i].gap) {
+      // Video: -ss seeks to the trim in-point; videoStream fits it to the slot.
+      const inSec = Math.max(0, (trims && +trims[i]) || 0);
+      inputs.push("-ss", inSec.toFixed(3), "-i", paths[i]);
+      parts.push(videoStream(i, width, height, fps, span, motTypes[i], motionAmount));
+    } else if (motTypes[i] === "none") {
       inputs.push("-loop", "1", "-t", span.toFixed(3), "-i", paths[i]);
       parts.push(stillStream(i, width, height, fps));
     } else {
@@ -132,9 +160,31 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
   if (capChain) { parts.push(`[${last}]${capChain}[vcap]`); last = "vcap"; }
   const vf = fadeVideo(fadeIn, fadeOut, total);
   if (vf.length) { parts.push(`[${last}]${vf.join(",")}[vf]`); last = "vf"; }
+
+  // Audio: the voiceover is input n. Any video clip with a volume above 0 (and an
+  // actual audio track) is delayed to its slot, volume-scaled, and summed in — so
+  // the clip's own sound plays under the narration. amix normalize=0 keeps levels.
   const af = fadeAudio(fadeIn, fadeOut, total);
-  let amap = `${n}:a`;
-  if (af.length) { parts.push(`[${n}:a]${af.join(",")}[aout]`); amap = "[aout]"; }
+  const vAudio = [];
+  for (let i = 0; i < n; i++) {
+    const vol = volumes ? +volumes[i] : 0;
+    if (isVideoPath(paths[i]) && !clips[i].gap && vol > 0 && (!audible || audible[i])) {
+      const startMs = Math.round(clips[i].start * 1000);
+      const lbl = `ea${i}`;
+      parts.push(`[${i}:a]atrim=duration=${clips[i].duration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `volume=${vol.toFixed(3)},adelay=${startMs}|${startMs}[${lbl}]`);
+      vAudio.push(`[${lbl}]`);
+    }
+  }
+  let amap;
+  if (vAudio.length) {
+    parts.push(`[${n}:a]${vAudio.join("")}amix=inputs=${vAudio.length + 1}:normalize=0:dropout_transition=0[amx]`);
+    if (af.length) { parts.push(`[amx]${af.join(",")}[aout]`); amap = "[aout]"; }
+    else amap = "[amx]";
+  } else {
+    amap = `${n}:a`;
+    if (af.length) { parts.push(`[${n}:a]${af.join(",")}[aout]`); amap = "[aout]"; }
+  }
 
   filterFiles.push({ name: "fc.txt", text: parts.join(";") });
   return [
@@ -153,19 +203,22 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
 // spec: { clips, width, height, fps, transitions, transitionDuration, fadeIn, fadeOut }
 // io:   { paths: string[] (per-clip basenames), audioName, capChain, encoder }
 export function buildRenderPlan(spec, io) {
-  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, fadeIn = 0, fadeOut = 0 } = spec;
-  const { paths, audioName, capChain = "", encoder = "libx264" } = io;
+  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, trims, volumes, fadeIn = 0, fadeOut = 0 } = spec;
+  const { paths, audioName, capChain = "", encoder = "libx264", audible } = io;
   const total = clips.length ? clips[clips.length - 1].start + clips[clips.length - 1].duration : 0;
   const hasTransition = Array.isArray(transitions) && clips.length >= 2 &&
     transitions.some((t, i) => i > 0 && t && t !== "cut");
   // Per-clip zoom also needs the filter-graph path (concat can't zoom per clip).
   const hasMotion = Array.isArray(motions) &&
     motions.some((m, i) => m && m !== "none" && clips[i] && !clips[i].gap);
-  const useGraph = hasTransition || hasMotion;
+  // Video clips always need the filter-graph path (trim/fit/zoom/audio-mix).
+  const hasVideo = Array.isArray(paths) &&
+    paths.some((p, i) => isVideoPath(p) && clips[i] && !clips[i].gap);
+  const useGraph = hasTransition || hasMotion || hasVideo;
   const common = { clips, paths, audioName, width, height, fps, fadeIn, fadeOut, total, capChain, encoder };
   const filterFiles = [];
   const args = useGraph
-    ? graphArgs({ ...common, transitions, transitionDuration, motions, motionAmount }, filterFiles)
+    ? graphArgs({ ...common, transitions, transitionDuration, motions, motionAmount, trims, volumes, audible }, filterFiles)
     : concatArgs(common, filterFiles);
   return { mode: useGraph ? "graph" : "concat", total, args, filterFiles };
 }
@@ -208,6 +261,18 @@ export async function detectEncoder() {
 
 // ---------- I/O + process ----------
 
+// Does this media file carry an audio track? Probe with ffmpeg (`-i` with no
+// output exits non-zero but prints the stream table to stderr) so we never map a
+// missing [i:a] stream — which would abort the whole render. ffprobe isn't always
+// bundled (ffmpeg-static ships only ffmpeg), so we parse ffmpeg's own output.
+function probeHasAudio(dir, file) {
+  return new Promise((resolve) => {
+    execFile(FFMPEG, ["-hide_banner", "-i", file], { cwd: dir, timeout: 15000 }, (_err, _out, stderr) => {
+      resolve(/Stream #\d+:\d+.*: Audio:/i.test(stderr || ""));
+    });
+  });
+}
+
 // Generate a solid black frame for gap clips using ffmpeg's lavfi color source.
 function makeBlack(dir, width, height) {
   return new Promise((resolve, reject) => {
@@ -246,7 +311,11 @@ export async function writeInputs(dir, spec, fileMap) {
     capChain = filter;
   }
 
-  return { paths, audioName, capChain };
+  // Which video clips actually have audio (so we only mix real streams in).
+  const audible = await Promise.all(clips.map((c, i) =>
+    (c.gap || !isVideoPath(paths[i])) ? Promise.resolve(false) : probeHasAudio(dir, paths[i])));
+
+  return { paths, audioName, capChain, audible };
 }
 
 // Parse ffmpeg -progress output → fraction in [0,1].

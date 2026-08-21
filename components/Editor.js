@@ -32,6 +32,7 @@ export default function Editor({
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
   motionByName, setMotion, applyMotionAll, applyMotionAlternate, motionAmount, setMotionAmount,
+  videoInfoByName = {}, trimByName = {}, setTrim, volumeByName = {}, setVolume,
   trimEnd, setTrimEnd, exportDuration,
   undo, redo, canUndo, canRedo,
   captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
@@ -88,7 +89,7 @@ export default function Editor({
   const onPickReplacement = useCallback((e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file || !(file.type.startsWith("image/") || file.type.startsWith("video/"))) return;
     setPendFile(file);
     setPendUrl((u) => { if (u) URL.revokeObjectURL(u); return URL.createObjectURL(file); });
   }, []);
@@ -575,11 +576,11 @@ export default function Editor({
       </aside>
 
       <input
-        ref={fileInputRef} type="file" accept="image/*" hidden
+        ref={fileInputRef} type="file" accept="image/*,video/*" hidden
         onChange={onPickFile}
       />
       <input
-        ref={replaceInputRef} type="file" accept="image/*" hidden
+        ref={replaceInputRef} type="file" accept="image/*,video/*" hidden
         onChange={onPickReplacement}
       />
       <input
@@ -592,12 +593,17 @@ export default function Editor({
         const el = imageEls[inspect];
         const num = insClip ? imageClips.indexOf(insClip) + 1 : 0;
         const curUrl = pendUrl || (el && el.url);
+        const isVid = !!(el && el.isVideo) && !pendUrl;
+        const vinfo = videoInfoByName[inspect] || {};
+        const vol = volumeByName[inspect] == null ? 0.5 : volumeByName[inspect];
+        const inPt = trimByName[inspect] || 0;
+        const kind = isVid ? "Video" : "Image";
         return (
           <div className="modal" role="dialog" aria-modal="true" onClick={closeInspect}>
             <div className="modal__card" onClick={(e) => e.stopPropagation()}>
               <div className="modal__head">
                 <span className="modal__title">
-                  {num ? `Image ${num} of ${imageCount}` : "Image"}
+                  {num ? `${kind} ${num} of ${imageCount}` : kind}
                   {insClip && <span className="modal__at"> · {tc(insClip.start)}</span>}
                 </span>
                 <button className="modal__x" onClick={closeInspect} aria-label="Close">✕</button>
@@ -627,10 +633,43 @@ export default function Editor({
                 </div>
               )}
 
+              {insClip && !insClip.gap && isVid && (
+                <div className="modal__vid">
+                  <div className="modal__trim">
+                    <span className="modal__motion-label">
+                      Trim — start point
+                      {vinfo.duration ? ` · clip ${vinfo.duration.toFixed(1)}s, slot ${insClip.duration.toFixed(1)}s` : ""}
+                    </span>
+                    <div className="modal__slider">
+                      <input
+                        type="range" min={0} max={Math.max(0.1, vinfo.duration || 0)} step={0.1}
+                        value={Math.min(inPt, Math.max(0.1, vinfo.duration || 0))}
+                        onChange={(e) => setTrim && setTrim(inspect, +e.target.value)}
+                      />
+                      <span className="trdur__val">{inPt.toFixed(1)}s</span>
+                    </div>
+                    {vinfo.duration > 0 && insClip.duration > vinfo.duration - inPt && (
+                      <span className="modal__hint">Clip is shorter than its slot — the last frame holds to fill it.</span>
+                    )}
+                  </div>
+                  <div className="modal__vol">
+                    <span className="modal__motion-label">Clip audio volume</span>
+                    <div className="modal__slider">
+                      <input
+                        type="range" min={0} max={1} step={0.05} value={vol}
+                        onChange={(e) => setVolume && setVolume(inspect, +e.target.value)}
+                      />
+                      <span className="trdur__val">{Math.round(vol * 100)}%</span>
+                    </div>
+                    <span className="modal__hint">Plays under the voiceover. 0% = silent.</span>
+                  </div>
+                </div>
+              )}
+
               {!pendUrl ? (
                 <div className="modal__actions">
                   <button className="mbtn mbtn--primary" onClick={() => replaceInputRef.current && replaceInputRef.current.click()}>
-                    Replace image
+                    Replace {isVid ? "video" : "image"}
                   </button>
                   <button className="mbtn mbtn--danger" onClick={removeInspected}>Remove from timeline</button>
                 </div>
