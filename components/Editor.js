@@ -682,7 +682,17 @@ export default function Editor({
               </div>
 
               <div className="modal__stage">
-                {curUrl && <img src={curUrl} alt="" />}
+                {isVid && vinfo.url ? (
+                  <video
+                    ref={modalVideoRef} src={vinfo.url} className="modal__stagevid"
+                    controls muted playsInline preload="metadata"
+                    onLoadedMetadata={(e) => {
+                      const v = e.currentTarget;
+                      try { v.currentTime = inPt; } catch { /* ignore */ }
+                      v.playbackRate = (longer && fitMode === "fit") ? Math.min(16, speed) : 1;
+                    }}
+                  />
+                ) : (curUrl && <img src={curUrl} alt="" />)}
                 {pendUrl && <span className="modal__flag">New — not applied yet</span>}
               </div>
               <div className="modal__file">
@@ -734,16 +744,16 @@ export default function Editor({
                     const holdFor = Math.max(0, insClip.duration - remain); // seconds the last frame holds
                     return (
                       <div className="modal__trim">
-                        <span className="modal__motion-label">Trim — drag to set where the clip starts</span>
-                        {vinfo.url && (
-                          <video
-                            ref={modalVideoRef} src={vinfo.url} className="modal__trimvid"
-                            muted playsInline preload="metadata"
-                            onLoadedMetadata={(e) => { try { e.currentTarget.currentTime = inPt; } catch { /* ignore */ } }}
+                        <span className="modal__motion-label">Trim — drag the handle to set where the clip starts</span>
+                        {/* Video-editor style trim bar: the fill shows the part that plays;
+                            dragging the handle scrubs the preview above and sets the start. */}
+                        <div className="trimbar">
+                          <div
+                            className="trimbar__fill"
+                            style={{ left: `${dur ? (inPt / dur) * 100 : 0}%`, width: `${dur ? (playLen / dur) * 100 : 0}%` }}
                           />
-                        )}
-                        <div className="modal__slider">
                           <input
+                            className="trimbar__range"
                             type="range" min={0} max={Math.max(0.1, dur)} step={0.05}
                             value={Math.min(inPt, Math.max(0.1, dur))}
                             onChange={(e) => {
@@ -752,7 +762,6 @@ export default function Editor({
                               if (modalVideoRef.current) { try { modalVideoRef.current.currentTime = val; } catch { /* ignore */ } }
                             }}
                           />
-                          <span className="trdur__val">{inPt.toFixed(1)}s</span>
                         </div>
                         <span className="modal__hint">
                           Starts at {inPt.toFixed(1)}s of {dur.toFixed(1)}s · plays {playLen.toFixed(1)}s in a {insClip.duration.toFixed(1)}s slot

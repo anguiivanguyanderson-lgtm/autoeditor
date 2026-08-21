@@ -587,6 +587,7 @@ body {
   border-radius: 10px; overflow: hidden; display: grid; place-items: center;
 }
 .modal__stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.modal__stagevid { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
 .modal__flag {
   position: absolute; top: 8px; left: 8px;
   font-size: 11px; font-weight: 600; color: #1a1204; background: var(--amber);
@@ -603,12 +604,34 @@ body {
 .modal__slider input[type="range"] { flex: 1; }
 .modal__hint { display: block; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
 .modal__hint--warn { color: #ffcf8f; }
-.modal__trimvid {
-  width: 100%; max-height: 240px; border-radius: 10px;
-  background: #000; margin: 6px 0; display: block;
+/* Video-editor style trim bar: a rectangle track, a highlighted "plays" region,
+   and a draggable handle (the range thumb) that scrubs the preview above. */
+.trimbar {
+  position: relative; height: 40px; margin: 8px 0 4px;
+  border-radius: 8px; background: var(--panel-2);
+  border: 1px solid var(--line); overflow: hidden;
 }
-.modal__trimbtns { display: flex; flex-wrap: wrap; gap: 10px; }
-.modal__trimbtns .mbtn { min-width: 120px; }
+.trimbar__fill {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(91,124,250,.28); border-left: 2px solid var(--accent);
+  pointer-events: none;
+}
+.trimbar__range {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; background: transparent; cursor: ew-resize;
+  -webkit-appearance: none; appearance: none;
+}
+.trimbar__range::-webkit-slider-runnable-track { background: transparent; height: 40px; }
+.trimbar__range::-moz-range-track { background: transparent; height: 40px; }
+.trimbar__range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 40px;
+  background: var(--accent); border: 2px solid rgba(255,255,255,.55);
+  border-radius: 4px; cursor: ew-resize;
+}
+.trimbar__range::-moz-range-thumb {
+  width: 12px; height: 40px; background: var(--accent);
+  border: 2px solid rgba(255,255,255,.55); border-radius: 4px; cursor: ew-resize;
+}
 .modal__actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .mbtn {
   flex: 1; min-width: 130px; font: inherit; font-size: 13.5px; font-weight: 600;
