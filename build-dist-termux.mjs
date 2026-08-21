@@ -44,6 +44,13 @@ export FRONTEND_DIR="$(pwd)/out"
 export OPEN_BROWSER=0
 export PORT="\${PORT:-4000}"
 
+# Keep the phone usable during a render: run ffmpeg at low priority and cap it to
+# about half the cores so it doesn't peg the CPU or overheat. Override by setting
+# RENDER_THREADS / RENDER_NICE yourself before running (RENDER_THREADS=0 = all cores).
+CORES="\$(nproc 2>/dev/null || echo 4)"
+export RENDER_THREADS="\${RENDER_THREADS:-\$(( CORES > 2 ? (CORES + 1) / 2 : 1 ))}"
+export RENDER_NICE="\${RENDER_NICE:-15}"
+
 # Finished videos are auto-saved here (so you can close the browser after
 # hitting Render and the file is still written). Prefer shared storage so the
 # phone's Gallery/Files can see it.

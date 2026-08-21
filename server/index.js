@@ -25,6 +25,12 @@ const PACKAGED = fssync.existsSync(path.join(EXE_DIR, FF_BIN));
 // Render and the video still gets written to a folder. Unset on desktop, where
 // the browser-download flow is used unchanged.
 const OUTPUT_DIR = process.env.OUTPUT_DIR || null;
+// Resource limits so a render doesn't hog the machine (mostly for phones/Termux).
+// RENDER_THREADS caps ffmpeg's thread count (0/unset = ffmpeg's default = all cores);
+// RENDER_NICE runs ffmpeg at that OS priority on Unix (0=normal … 19=lowest).
+const RENDER_THREADS = Math.max(0, parseInt(process.env.RENDER_THREADS || "0", 10) || 0);
+const RENDER_NICE = process.env.RENDER_NICE != null && process.env.RENDER_NICE !== ""
+  ? parseInt(process.env.RENDER_NICE, 10) : null;
 // Job temp dirs live in the OS temp folder, NOT under the project (which may be
 // inside OneDrive/Dropbox and lock files during sync).
 const TMP = path.join(os.tmpdir(), "autoeditor-render");
@@ -155,7 +161,7 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
         // console (switch to Termux to watch it).
         const pct = Math.floor(p * 100);
         if (pct >= job._loggedPct + 5) { job._loggedPct = pct; console.log(`Rendering… ${pct}%`); }
-      });
+      }, { threads: RENDER_THREADS, nice: RENDER_NICE });
       job.proc = proc;
 
       done.then((outPath) => {

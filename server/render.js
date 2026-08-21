@@ -251,8 +251,26 @@ function parseProgress(chunk, total) {
 
 // Spawn native ffmpeg. Returns { proc, done } where done resolves to the output
 // path on success. onProgress(fraction) is called as encoding advances.
-export function runRender(dir, args, total, onProgress) {
-  const proc = spawn(FFMPEG, [...args, "-progress", "pipe:1", "-nostats", "-y"], { cwd: dir });
+// opts.threads caps encoder + filter threads (so a phone doesn't peg every core
+// and overheat); opts.nice runs it at low OS priority (so the phone stays
+// responsive — foreground apps get CPU first). Both are best-effort.
+export function runRender(dir, args, total, onProgress, opts = {}) {
+  const threads = opts.threads > 0 ? opts.threads : 0;
+  let a = [...args];
+  if (threads) {
+    // Encoder threads: insert before the output filename (an output option).
+    const oi = a.lastIndexOf("output.mp4");
+    if (oi >= 0) a.splice(oi, 0, "-threads", String(threads));
+    // Filter threads: global options.
+    a = ["-filter_complex_threads", String(threads), "-filter_threads", String(threads), ...a];
+  }
+  a = [...a, "-progress", "pipe:1", "-nostats", "-y"];
+  // Low priority keeps the phone usable during a render (Unix only).
+  let cmd = FFMPEG, cmdArgs = a;
+  if (opts.nice != null && process.platform !== "win32") {
+    cmd = "nice"; cmdArgs = ["-n", String(opts.nice), FFMPEG, ...a];
+  }
+  const proc = spawn(cmd, cmdArgs, { cwd: dir });
   let stderr = "";
   proc.stdout.on("data", (buf) => {
     const p = parseProgress(buf, total);

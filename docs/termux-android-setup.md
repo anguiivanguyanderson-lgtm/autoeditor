@@ -116,6 +116,19 @@ running, a banner reconnects to it and shows live progress + a Download when don
 A second render is refused while one is running (phones can't do two at once) —
 wait for the current one to finish, or Cancel it first.
 
+### The phone stays usable during a render
+Renders can be CPU-heavy (transitions and zoom especially). To keep the phone
+responsive, `start.sh` runs ffmpeg at **low priority** (`RENDER_NICE=15`) and caps
+it to **about half the cores** (`RENDER_THREADS`) so it won't peg the CPU or
+overheat. Foreground apps always get CPU first, so scrolling/typing stays smooth;
+the render just uses spare capacity (fastest when the screen is off).
+
+Tune it before running if you like:
+```bash
+RENDER_THREADS=0 RENDER_NICE=0 bash start.sh   # full speed (may make the phone sluggish)
+RENDER_THREADS=2 RENDER_NICE=19 bash start.sh  # gentlest (slowest, phone stays snappy)
+```
+
 ---
 
 ## Troubleshooting
