@@ -43,15 +43,31 @@ function stillStream(i, width, height, fps) {
 const VIDEO_RE = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
 const isVideoPath = (p) => !!p && VIDEO_RE.test(p);
 
+// atempo only takes 0.5–2.0 per instance, so chain it for larger speed-ups
+// (audio equivalent of setpts video speed). Returns "" for ~1x.
+function atempoChain(speed) {
+  let s = speed;
+  const parts = [];
+  while (s > 2.0001) { parts.push("atempo=2.0"); s /= 2.0; }
+  if (s > 1.0001) parts.push(`atempo=${s.toFixed(4)}`);
+  return parts.join(",");
+}
+
 // A video clip stream. The input is seeked to the trim in-point with -ss, so
-// here we normalise to the canvas, clone the last frame to fill any slot longer
-// than the remaining footage (tpad), cut to exactly `span`, and reset PTS. With
-// motion, an animated Ken Burns zoom is layered on (zoompan d=1 = per-frame).
-function videoStream(i, W, H, fps, span, motionType, amount) {
+// here we normalise to the canvas, optionally speed it up so the whole clip fits
+// the slot (`speed` > 1 = fast-forward, via setpts), clone the last frame to fill
+// any slot still longer than the footage (tpad), cut to exactly `span`, and reset
+// PTS. With motion, an animated Ken Burns zoom is layered on (zoompan d=1).
+function videoStream(i, W, H, fps, span, motionType, amount, speed = 1) {
   const S = span.toFixed(3);
-  const base = `[${i}:v]${vfChain(W, H, fps)},` +
+  const fast = speed > 1.0001;
+  const spd = fast ? `,setpts=(PTS-STARTPTS)/${speed.toFixed(4)}` : "";
+  const base = `[${i}:v]${vfChain(W, H, fps)}${spd},` +
     `tpad=stop_mode=clone:stop_duration=${S},trim=duration=${S},setpts=PTS-STARTPTS`;
-  if (!motionType || motionType === "none") return `${base}[v${i}]`;
+  if (!motionType || motionType === "none") {
+    // Re-timebase to CFR after a speed change so downstream xfade/encode stay clean.
+    return `${base}${fast ? `,fps=${fps}` : ""}[v${i}]`;
+  }
   const FR = Math.max(2, Math.round(span * fps));
   const A = amount.toFixed(4);
   const z = motionType === "zoomout" ? `1+${A}-(on/${FR - 1})*${A}` : `1+(on/${FR - 1})*${A}`;
@@ -124,7 +140,7 @@ function concatArgs({ audioName, width, height, fps, fadeIn, fadeOut, total, cap
   return args;
 }
 
-function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, trims, volumes, audible, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
+function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, trims, volumes, speeds, audible, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
   const n = clips.length;
   const frame = 1 / fps;
   const clampT = (d) => Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, d));
@@ -140,8 +156,9 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
     if (isVideoPath(paths[i]) && !clips[i].gap) {
       // Video: -ss seeks to the trim in-point; videoStream fits it to the slot.
       const inSec = Math.max(0, (trims && +trims[i]) || 0);
+      const spd = speeds && +speeds[i] > 1 ? +speeds[i] : 1;
       inputs.push("-ss", inSec.toFixed(3), "-i", paths[i]);
-      parts.push(videoStream(i, width, height, fps, span, motTypes[i], motionAmount));
+      parts.push(videoStream(i, width, height, fps, span, motTypes[i], motionAmount, spd));
     } else if (motTypes[i] === "none") {
       inputs.push("-loop", "1", "-t", span.toFixed(3), "-i", paths[i]);
       parts.push(stillStream(i, width, height, fps));
@@ -171,7 +188,10 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
     if (isVideoPath(paths[i]) && !clips[i].gap && vol > 0 && (!audible || audible[i])) {
       const startMs = Math.round(clips[i].start * 1000);
       const lbl = `ea${i}`;
-      parts.push(`[${i}:a]atrim=duration=${clips[i].duration.toFixed(3)},asetpts=PTS-STARTPTS,` +
+      // Speed the audio to match a fast-forwarded clip (atempo), then cut to slot.
+      const spd = speeds && +speeds[i] > 1 ? +speeds[i] : 1;
+      const at = spd > 1 ? `${atempoChain(spd)},` : "";
+      parts.push(`[${i}:a]${at}atrim=duration=${clips[i].duration.toFixed(3)},asetpts=PTS-STARTPTS,` +
         `volume=${vol.toFixed(3)},adelay=${startMs}|${startMs}[${lbl}]`);
       vAudio.push(`[${lbl}]`);
     }
@@ -203,7 +223,7 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
 // spec: { clips, width, height, fps, transitions, transitionDuration, fadeIn, fadeOut }
 // io:   { paths: string[] (per-clip basenames), audioName, capChain, encoder }
 export function buildRenderPlan(spec, io) {
-  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, trims, volumes, fadeIn = 0, fadeOut = 0 } = spec;
+  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, trims, volumes, speeds, fadeIn = 0, fadeOut = 0 } = spec;
   const { paths, audioName, capChain = "", encoder = "libx264", audible } = io;
   const total = clips.length ? clips[clips.length - 1].start + clips[clips.length - 1].duration : 0;
   const hasTransition = Array.isArray(transitions) && clips.length >= 2 &&
@@ -218,7 +238,7 @@ export function buildRenderPlan(spec, io) {
   const common = { clips, paths, audioName, width, height, fps, fadeIn, fadeOut, total, capChain, encoder };
   const filterFiles = [];
   const args = useGraph
-    ? graphArgs({ ...common, transitions, transitionDuration, motions, motionAmount, trims, volumes, audible }, filterFiles)
+    ? graphArgs({ ...common, transitions, transitionDuration, motions, motionAmount, trims, volumes, speeds, audible }, filterFiles)
     : concatArgs(common, filterFiles);
   return { mode: useGraph ? "graph" : "concat", total, args, filterFiles };
 }

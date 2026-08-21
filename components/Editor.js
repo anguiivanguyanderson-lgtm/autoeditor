@@ -33,6 +33,7 @@ export default function Editor({
   fadeIn, setFadeIn, fadeOut, setFadeOut,
   motionByName, setMotion, applyMotionAll, applyMotionAlternate, motionAmount, setMotionAmount,
   videoInfoByName = {}, trimByName = {}, setTrim, volumeByName = {}, setVolume,
+  fitByName = {}, setFit,
   trimEnd, setTrimEnd, exportDuration,
   undo, redo, canUndo, canRedo,
   captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
@@ -598,6 +599,9 @@ export default function Editor({
         const vol = volumeByName[inspect] == null ? 0.5 : volumeByName[inspect];
         const inPt = trimByName[inspect] || 0;
         const kind = isVid ? "Video" : "Image";
+        const fitMode = fitByName[inspect] || "fit";
+        const longer = !!(vinfo.duration && insClip && vinfo.duration > insClip.duration + 0.05);
+        const speed = (longer && insClip) ? (vinfo.duration / insClip.duration) : 1;
         return (
           <div className="modal" role="dialog" aria-modal="true" onClick={closeInspect}>
             <div className="modal__card" onClick={(e) => e.stopPropagation()}>
@@ -635,23 +639,45 @@ export default function Editor({
 
               {insClip && !insClip.gap && isVid && (
                 <div className="modal__vid">
-                  <div className="modal__trim">
-                    <span className="modal__motion-label">
-                      Trim — start point
-                      {vinfo.duration ? ` · clip ${vinfo.duration.toFixed(1)}s, slot ${insClip.duration.toFixed(1)}s` : ""}
-                    </span>
-                    <div className="modal__slider">
-                      <input
-                        type="range" min={0} max={Math.max(0.1, vinfo.duration || 0)} step={0.1}
-                        value={Math.min(inPt, Math.max(0.1, vinfo.duration || 0))}
-                        onChange={(e) => setTrim && setTrim(inspect, +e.target.value)}
-                      />
-                      <span className="trdur__val">{inPt.toFixed(1)}s</span>
+                  {longer && (
+                    <div className="modal__fit">
+                      <span className="modal__motion-label">
+                        Clip is longer than its slot · {vinfo.duration.toFixed(1)}s clip, {insClip.duration.toFixed(1)}s slot
+                      </span>
+                      <div className="seg">
+                        <button
+                          type="button" className={fitMode === "fit" ? "is-on" : ""}
+                          onClick={() => setFit && setFit(inspect, "fit")}
+                        >Fit to slot</button>
+                        <button
+                          type="button" className={fitMode === "trim" ? "is-on" : ""}
+                          onClick={() => setFit && setFit(inspect, "trim")}
+                        >Trim (1×)</button>
+                      </div>
+                      {fitMode === "fit"
+                        ? <span className="modal__hint">Whole clip fast-forwarded at {speed.toFixed(1)}× to fit the slot.</span>
+                        : <span className="modal__hint">Plays at 1× — set a start point below; the rest is cut off.</span>}
                     </div>
-                    {vinfo.duration > 0 && insClip.duration > vinfo.duration - inPt && (
-                      <span className="modal__hint">Clip is shorter than its slot — the last frame holds to fill it.</span>
-                    )}
-                  </div>
+                  )}
+                  {(!longer || fitMode === "trim") && (
+                    <div className="modal__trim">
+                      <span className="modal__motion-label">
+                        Trim — start point
+                        {vinfo.duration ? ` · clip ${vinfo.duration.toFixed(1)}s, slot ${insClip.duration.toFixed(1)}s` : ""}
+                      </span>
+                      <div className="modal__slider">
+                        <input
+                          type="range" min={0} max={Math.max(0.1, vinfo.duration || 0)} step={0.1}
+                          value={Math.min(inPt, Math.max(0.1, vinfo.duration || 0))}
+                          onChange={(e) => setTrim && setTrim(inspect, +e.target.value)}
+                        />
+                        <span className="trdur__val">{inPt.toFixed(1)}s</span>
+                      </div>
+                      {vinfo.duration > 0 && insClip.duration > vinfo.duration - inPt && (
+                        <span className="modal__hint">Clip is shorter than its slot — the last frame holds to fill it.</span>
+                      )}
+                    </div>
+                  )}
                   <div className="modal__vol">
                     <span className="modal__motion-label">Clip audio volume</span>
                     <div className="modal__slider">

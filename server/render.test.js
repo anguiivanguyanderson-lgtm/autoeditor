@@ -88,6 +88,18 @@ describe("buildRenderPlan", () => {
     expect(fc).not.toContain("adelay");
   });
 
+  it("fast-forwards a longer clip to fit its slot (video setpts + audio atempo)", () => {
+    const vio = { ...io, paths: ["img0.png", "clip1.mp4", "img2.png"] };
+    const p = buildRenderPlan(
+      // clip 'b' has a 3s slot; speed 2 = an ~6s clip fit into it
+      { ...base, clips, transitions: ["cut", "cut", "cut"], trims: [0, 0, 0], volumes: [0, 0.5, 0], speeds: [1, 2, 1] },
+      { ...vio, audible: [false, true, false] }
+    );
+    const fc = filterText(p);
+    expect(fc).toContain("setpts=(PTS-STARTPTS)/2.0000");
+    expect(fc).toContain("atempo=2.0"); // audio sped to match
+  });
+
   it("applies a zoom to a video clip via zoompan (per-frame d=1)", () => {
     const vio = { ...io, paths: ["clip0.mp4", "img1.png", "img2.png"] };
     const p = buildRenderPlan(

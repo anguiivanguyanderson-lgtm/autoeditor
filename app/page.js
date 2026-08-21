@@ -107,6 +107,7 @@ export default function Home() {
   const [motionAmount, setMotionAmount] = useState(0.08); // Ken Burns zoom depth (0–0.2)
   const [trimByName, setTrimByName] = useState({});   // video clip name -> in-point seconds
   const [volumeByName, setVolumeByName] = useState({}); // video clip name -> 0..1 (default 0.5)
+  const [fitByName, setFitByName] = useState({});     // video clip name -> "fit" (fast-fwd, default) | "trim" (1x)
   const [trimEnd, setTrimEnd] = useState(0); // export end point (0 = untrimmed / full audio)
   const [captionRaw, setCaptionRaw] = useState(null); // uploaded transcript text
   const [captionName, setCaptionName] = useState(null);
@@ -274,6 +275,9 @@ export default function Home() {
   const setVolume = useCallback((name, vol) => {
     setVolumeByName((prev) => ({ ...prev, [name]: Math.min(1, Math.max(0, +vol || 0)) }));
   }, []);
+  const setFit = useCallback((name, mode) => {
+    setFitByName((prev) => ({ ...prev, [name]: mode }));
+  }, []);
   const applyMotionAll = useCallback((type, names) => {
     setMotionByName(() => { const next = {}; for (const n of names) next[n] = type; return next; });
   }, []);
@@ -392,8 +396,22 @@ export default function Home() {
       const exportClips = trimClips(clips, exportDuration);
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const motions = exportClips.map((c) => motionByName[c.name] || "none");
-      // Per-clip video params (parallel to exportClips). Images get 0/none.
-      const trims = exportClips.map((c) => trimByName[c.name] || 0);
+      // Per-clip video params (parallel to exportClips). Images get 0/1/none.
+      // "fit" (default) fast-forwards a longer-than-slot clip to fit the whole
+      // thing; "trim" keeps 1x and uses the in-point. Short clips stay 1x + freeze.
+      const trims = exportClips.map((c) => {
+        const info = videoInfoByName[c.name];
+        if (!info) return 0;
+        return (fitByName[c.name] === "trim") ? (trimByName[c.name] || 0) : 0;
+      });
+      const speeds = exportClips.map((c) => {
+        const info = videoInfoByName[c.name];
+        if (!info) return 1;
+        const mode = fitByName[c.name] || "fit";
+        const dur = info.duration || 0;
+        const slot = c.duration || 0;
+        return (mode === "fit" && slot > 0 && dur > slot) ? +(dur / slot).toFixed(4) : 1;
+      });
       const volumes = exportClips.map((c) =>
         Object.prototype.hasOwnProperty.call(videosByName, c.name)
           ? (volumeByName[c.name] == null ? 0.5 : volumeByName[c.name]) : 0);
@@ -401,7 +419,7 @@ export default function Home() {
       const blob = await renderVideo({
         clips: exportClips, imagesByName, videosByName, audioFile,
         width: dims.width, height: dims.height, fps,
-        transitions, transitionDuration, motions, motionAmount, trims, volumes, fadeIn, fadeOut,
+        transitions, transitionDuration, motions, motionAmount, trims, volumes, speeds, fadeIn, fadeOut,
         captions, captionStyle, captionSize,
         onProgress: setProgress,
       });
@@ -412,7 +430,7 @@ export default function Home() {
       if (!cancelRef.current) setBusy(false);
     }
   }, [clips, exportDuration, imagesByName, videosByName, audioFile, dims, fps, transitionsByName, transitionDuration,
-      motionByName, motionAmount, trimByName, volumeByName, fadeIn, fadeOut,
+      motionByName, motionAmount, trimByName, volumeByName, fitByName, videoInfoByName, fadeIn, fadeOut,
       captionsOn, captionCues, captionStyle, captionSize]);
 
   return (
@@ -558,6 +576,7 @@ export default function Home() {
           videoInfoByName={videoInfoByName}
           trimByName={trimByName} setTrim={setTrim}
           volumeByName={volumeByName} setVolume={setVolume}
+          fitByName={fitByName} setFit={setFit}
           trimEnd={exportDuration} setTrimEnd={setTrimEnd} exportDuration={exportDuration}
           undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
           captionCues={captionCues} captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}
