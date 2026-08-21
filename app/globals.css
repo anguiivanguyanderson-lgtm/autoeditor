@@ -30,6 +30,18 @@
 
 * { box-sizing: border-box; }
 
+/* Dark, subtle scrollbars — the default OS bars (white/grey) clash with the
+   theme. Firefox uses scrollbar-color; WebKit/Chromium uses the pseudo-els. */
+* { scrollbar-width: thin; scrollbar-color: #3a4353 transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: #3a4353; border-radius: 8px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #4a5568; background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
 html, body { height: 100%; }
 body {
   margin: 0;
