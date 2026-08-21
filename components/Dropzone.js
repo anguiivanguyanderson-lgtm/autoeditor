@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Recursively read every File out of a dropped entry (file or directory).
 // readEntries returns in batches of ~100, so we keep reading until it's empty.
@@ -29,6 +29,14 @@ export default function Dropzone({
 }) {
   const inputRef = useRef(null);
   const [over, setOver] = useState(false);
+  // On touch devices, accept="image/*" makes Android open Google Photos, which
+  // renames files (losing the timestamp). Dropping `accept` opens the Files /
+  // Documents picker instead, which preserves the real filename (0-03.png).
+  // addImages/onAudio still filter by type, so nothing unwanted gets through.
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    try { setCoarse(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch { /* ignore */ }
+  }, []);
 
   const onDrop = useCallback(async (e) => {
     e.preventDefault();
@@ -77,7 +85,7 @@ export default function Dropzone({
       <input
         ref={inputRef}
         type="file"
-        accept={accept}
+        accept={coarse ? undefined : accept}
         multiple={multiple}
         hidden
         onChange={(e) => {
