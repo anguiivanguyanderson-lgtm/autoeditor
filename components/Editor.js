@@ -181,6 +181,27 @@ export default function Editor({
       return m === "zoomout" ? 1 + motionAmount * (1 - lp) : 1 + motionAmount * lp;
     };
 
+    // Start/keep a clip's offscreen <video> playing in sync with the playhead and
+    // mark it active (so it isn't paused). Returns the element to draw, or null if
+    // it isn't a ready-to-draw video. Called both while a clip is showing AND
+    // during the transition INTO it, so the video is already warm when revealed.
+    const primeVideo = (c, tt, wantDraw) => {
+      const vinfo = videoInfoByName[c.name];
+      if (!vinfo) return null;
+      const v = vidRefs.current[c.name];
+      const pr = videoParams(c.name, c.duration);
+      if (!v || !pr) return null;
+      const srcTime = Math.min(vinfo.duration || 0, Math.max(0, pr.trimStart + (tt - c.start) * pr.speed));
+      const clipVol = volumeByName[c.name] == null ? 0.5 : volumeByName[c.name];
+      v.volume = Math.min(1, Math.max(0, clipVol));
+      v.muted = clipVol <= 0;
+      v.playbackRate = Math.min(16, Math.max(0.0625, pr.speed));
+      if (v.paused) { try { v.currentTime = srcTime; } catch { /* ignore */ } v.play().catch(() => {}); }
+      else if (Math.abs(v.currentTime - srcTime) > 0.6) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
+      activeVideo = c.name;
+      return (wantDraw && v.readyState >= 2 && !v.seeking) ? v : null;
+    };
+
     if (clips.length) {
       let idx = clips.findIndex((c) => t >= c.start && t < c.start + c.duration);
       if (idx === -1) idx = clips.length - 1;
@@ -197,31 +218,15 @@ export default function Editor({
           scaleAt(idx - 1, t), scaleAt(idx, t)
         );
         ctx.globalAlpha = 1;
+        // Warm up the incoming video during the transition so it's already
+        // decoding/playing when it takes over — fixes the stall-then-smooth start.
+        if (playing) primeVideo(clip, t, false);
       } else {
-        // Video clips: while PLAYING, draw live frames from an offscreen <video>
-        // synced to the playhead (with its audio at the set volume). While
-        // paused/scrubbing, draw the still poster — seeking a paused, offscreen
-        // video flashes to black on many (mobile) browsers, so we don't seek it.
+        // While PLAYING, draw live video frames (kept warm since the transition);
+        // paused/scrubbing shows the still poster — seeking a paused, offscreen
+        // video flashes black on many (mobile) browsers, so we don't seek it.
         let drawable = imageEls[clip.name];
-        const vinfo = videoInfoByName[clip.name];
-        if (vinfo && playing) {
-          const v = vidRefs.current[clip.name];
-          const pr = videoParams(clip.name, clip.duration);
-          if (v && pr) {
-            const srcTime = Math.min(vinfo.duration || 0, Math.max(0, pr.trimStart + (t - clip.start) * pr.speed));
-            // Play the clip's own audio at its set volume, mixed with the voiceover.
-            const clipVol = volumeByName[clip.name] == null ? 0.5 : volumeByName[clip.name];
-            v.volume = Math.min(1, Math.max(0, clipVol));
-            v.muted = clipVol <= 0;
-            v.playbackRate = Math.min(16, Math.max(0.0625, pr.speed));
-            if (v.paused) { try { v.currentTime = srcTime; } catch { /* ignore */ } v.play().catch(() => {}); }
-            else if (Math.abs(v.currentTime - srcTime) > 0.6) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
-            // Only draw the video once it has a settled (non-seeking) frame; else
-            // the poster stays up — never a black flash.
-            if (v.readyState >= 2 && !v.seeking) drawable = v;
-            activeVideo = clip.name;
-          }
-        }
+        if (playing) { const vEl = primeVideo(clip, t, true); if (vEl) drawable = vEl; }
         const dw = (drawable && (drawable.videoWidth || drawable.naturalWidth)) || 0;
         const dh = (drawable && (drawable.videoHeight || drawable.naturalHeight)) || 0;
         if (drawable && dw && dh) {
