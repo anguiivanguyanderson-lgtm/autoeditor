@@ -86,9 +86,19 @@ mkdir -p "$OUTPUT_DIR" 2>/dev/null || true
 REAL_OUT="\$(cd "\$OUTPUT_DIR" 2>/dev/null && pwd -P)"
 [ -n "\$REAL_OUT" ] && export OUTPUT_DIR="\$REAL_OUT"
 
-# Keep the CPU running during long renders even if the screen turns off.
-termux-wake-lock 2>/dev/null || true
+# Keep the CPU running during long renders even when the screen is locked.
+if command -v termux-wake-lock >/dev/null 2>&1; then
+  termux-wake-lock && echo "Wake-lock acquired — CPU stays on with the screen off."
+else
+  echo "termux-wake-lock missing. Install it:  pkg install termux-tools"
+fi
 trap 'termux-wake-unlock 2>/dev/null || true' EXIT
+echo ""
+echo "IMPORTANT: if rendering PAUSES when you lock the screen, Android is freezing"
+echo "Termux. Turn OFF battery optimization for it (one time):"
+echo "  Android Settings > Apps > Termux > Battery > Unrestricted (Don't optimize)."
+echo "Then rendering keeps going with the screen locked."
+echo ""
 
 echo "AutoEditor is running."
 echo "Open  http://localhost:\${PORT}  in Chrome/Firefox on this phone."

@@ -88,6 +88,18 @@ MediaStore id, not `0-03.png`), which breaks the timestamp naming. On phones the
 app is set to open the **Files / Documents** picker instead, which keeps the real
 filename. If a chooser ever opens Photos, back out and pick **Files**.
 
+### Keep rendering while the screen is locked (IMPORTANT)
+`start.sh` takes a **wake-lock** so the CPU stays on with the screen off. But many
+phones (Xiaomi/MIUI, Samsung, Oppo, Realme, etc.) also **freeze Termux via battery
+optimization** the moment you lock the screen — so a render appears to *pause* when
+locked and *resume* when you unlock. To stop that, turn battery optimization OFF
+for Termux, once:
+
+**Android Settings → Apps → Termux → Battery → Unrestricted** ("Don't optimize").
+
+With that set (plus the wake-lock), rendering keeps running with the screen locked.
+Keeping the phone on the charger during long renders helps too.
+
 ### Rendering runs in the background — you can close the browser
 The render runs in the Termux server, not the browser. After you tap **Render**
 you can **close the browser or lock the screen** — it keeps rendering.
@@ -153,6 +165,7 @@ the hardware encoder on that phone is misbehaving — rerun with
 | Image timestamp shows a huge number (e.g. `10000689:15`) | You added it via **Gallery/Photos**. Re-add via **Files**. |
 | `node not found` / `ffmpeg not found` | Needs internet on first run. Or install manually: `pkg install -y nodejs ffmpeg`. |
 | `unzip: command not found` | `pkg install -y unzip`. |
+| Render pauses when you lock the screen, resumes when you unlock | Android is freezing Termux. Turn OFF battery optimization: Settings → Apps → Termux → Battery → **Unrestricted**. The wake-lock alone isn't enough on aggressive OEMs. |
 | Video saved somewhere file apps can't open (`/data/data/...`) | Storage access wasn't granted. Run `termux-setup-storage` (tap Allow), then restart `bash start.sh` — it saves to **Download/AutoEditor**. |
 
 ---
