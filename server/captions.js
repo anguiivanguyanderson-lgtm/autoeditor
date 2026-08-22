@@ -35,20 +35,19 @@ const MARGIN_FACTOR = 0.07;
 // Reflows a caption into balanced lines that each fit the frame WIDTH, so 9:16
 // portrait doesn't overflow. Resolution-independent (W and fontPx scale together).
 function captionMaxChars(W, fontPx) {
-  return Math.max(8, Math.floor((W * 0.90) / (fontPx * 0.55)));
+  return Math.max(8, Math.floor((W * 0.90) / (fontPx * 0.58)));
 }
 function wrapToWidth(text, maxChars) {
   const clean = String(text).replace(/\s+/g, " ").trim();
   if (!clean) return [];
   if (clean.length <= maxChars) return [clean];
+  // Greedy fill: every line stays within maxChars, so nothing overflows.
   const words = clean.split(" ");
-  const n = Math.ceil(clean.length / maxChars);
-  const target = Math.ceil(clean.length / n);
   const lines = [];
   let cur = "";
   for (const w of words) {
     const cand = cur ? `${cur} ${w}` : w;
-    if (cur && cand.length > target && lines.length < n - 1) { lines.push(cur); cur = w; }
+    if (cur && cand.length > maxChars) { lines.push(cur); cur = w; }
     else cur = cand;
   }
   if (cur) lines.push(cur);
