@@ -197,31 +197,30 @@ export default function Editor({
         );
         ctx.globalAlpha = 1;
       } else {
-        // Draw a live video frame for video clips (synced to the playhead), else
-        // the poster/image. Only the active clip's video plays; others pause.
+        // Video clips: while PLAYING, draw live frames from an offscreen <video>
+        // synced to the playhead (with its audio at the set volume). While
+        // paused/scrubbing, draw the still poster — seeking a paused, offscreen
+        // video flashes to black on many (mobile) browsers, so we don't seek it.
         let drawable = imageEls[clip.name];
         const vinfo = videoInfoByName[clip.name];
-        if (vinfo) {
+        if (vinfo && playing) {
           const v = vidRefs.current[clip.name];
           const pr = videoParams(clip.name, clip.duration);
           if (v && pr) {
             const srcTime = Math.min(vinfo.duration || 0, Math.max(0, pr.trimStart + (t - clip.start) * pr.speed));
-            if (playing) {
-              // Play the clip's own audio at its set volume, mixed with the voiceover.
-              const clipVol = volumeByName[clip.name] == null ? 0.5 : volumeByName[clip.name];
-              v.volume = Math.min(1, Math.max(0, clipVol));
-              v.muted = clipVol <= 0;
-              v.playbackRate = Math.min(16, Math.max(0.0625, pr.speed));
-              if (v.paused) { try { v.currentTime = srcTime; } catch { /* ignore */ } v.play().catch(() => {}); }
-              else if (Math.abs(v.currentTime - srcTime) > 0.35) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
-            } else {
-              if (!v.paused) v.pause();
-              if (Math.abs(v.currentTime - srcTime) > 0.04) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
-            }
-            if (v.readyState >= 2) drawable = v;
+            // Play the clip's own audio at its set volume, mixed with the voiceover.
+            const clipVol = volumeByName[clip.name] == null ? 0.5 : volumeByName[clip.name];
+            v.volume = Math.min(1, Math.max(0, clipVol));
+            v.muted = clipVol <= 0;
+            v.playbackRate = Math.min(16, Math.max(0.0625, pr.speed));
+            if (v.paused) { try { v.currentTime = srcTime; } catch { /* ignore */ } v.play().catch(() => {}); }
+            else if (Math.abs(v.currentTime - srcTime) > 0.6) { try { v.currentTime = srcTime; } catch { /* ignore */ } }
+            // Only draw the video once it has a settled (non-seeking) frame; else
+            // the poster stays up — never a black flash.
+            if (v.readyState >= 2 && !v.seeking) drawable = v;
+            activeVideo = clip.name;
           }
         }
-        activeVideo = vinfo ? clip.name : null;
         const dw = (drawable && (drawable.videoWidth || drawable.naturalWidth)) || 0;
         const dh = (drawable && (drawable.videoHeight || drawable.naturalHeight)) || 0;
         if (drawable && dw && dh) {
@@ -690,6 +689,7 @@ export default function Editor({
         const el = imageEls[inspect];
         const num = insClip ? imageClips.indexOf(insClip) + 1 : 0;
         const curUrl = pendUrl || (el && el.url);
+        const pendIsVid = !!(pendFile && pendFile.type && pendFile.type.startsWith("video/"));
         const isVid = !!(el && el.isVideo) && !pendUrl;
         const vinfo = videoInfoByName[inspect] || {};
         const vol = volumeByName[inspect] == null ? 0.5 : volumeByName[inspect];
@@ -710,7 +710,13 @@ export default function Editor({
               </div>
 
               <div className="modal__stage">
-                {isVid && vinfo.url ? (
+                {pendUrl ? (
+                  // A chosen-but-not-applied replacement: a video needs a <video>,
+                  // not an <img> (an <img> with a video URL just shows black).
+                  pendIsVid
+                    ? <video src={pendUrl} className="modal__stagevid" controls muted playsInline preload="metadata" />
+                    : <img src={pendUrl} alt="" />
+                ) : isVid && vinfo.url ? (
                   <video
                     ref={modalVideoRef} src={vinfo.url} className="modal__stagevid"
                     controls muted playsInline preload="metadata"
