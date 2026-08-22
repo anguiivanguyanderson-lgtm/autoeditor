@@ -12,7 +12,7 @@ export const CAPTION_STYLES = {
   boxed: {
     id: "boxed", label: "Boxed",
     fill: "#ffffff", stroke: null, box: "rgba(0,0,0,0.6)",
-    dt: (bw, fs) => `fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=${Math.max(4, Math.round(fs * 0.2))}`,
+    dt: (bw, fs) => `fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=${Math.max(3, Math.round(fs * 0.16))}`,
   },
   yellow: {
     id: "yellow", label: "Yellow classic",
@@ -31,8 +31,8 @@ export function captionFontPx(height, sizeId) {
 
 const MARGIN_FACTOR = 0.07;
 
-// Boxed captions need extra line spacing so their per-line boxes keep a gap.
-const lineHeightFactor = (st) => (st && st.box ? 1.85 : 1.16);
+// Boxed captions need a bit more line spacing so their per-line boxes keep a gap.
+const lineHeightFactor = (st) => (st && st.box ? 1.5 : 1.16);
 
 // Vertical slot (top y) for line i of an n-line caption, bottom-anchored.
 const lineTop = (H, fontPx, n, i, lhf = 1.16) =>
@@ -40,11 +40,11 @@ const lineTop = (H, fontPx, n, i, lhf = 1.16) =>
 
 // ---- render: one centered drawtext per LINE (so each line is centered) ----
 // Returns the filter chain plus the per-line textfiles to write into the FS.
-export function buildCaptionBurn(cues, styleId, width, height, sizeId) {
+export function buildCaptionBurn(cues, styleId, width, height, sizeId, lineHeight) {
   const st = CAPTION_STYLES[styleId] || CAPTION_STYLES.classic;
   const fs = captionFontPx(height, sizeId);
   const bw = Math.max(2, Math.round(fs / 9));
-  const lhf = lineHeightFactor(st);
+  const lhf = lineHeight > 0 ? lineHeight : lineHeightFactor(st);
   const files = [];
   const filters = [];
   let li = 0;

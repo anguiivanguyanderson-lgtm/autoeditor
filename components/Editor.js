@@ -6,7 +6,7 @@ import {
   MIN_TRANSITION_DURATION, MAX_TRANSITION_DURATION,
 } from "../lib/transitions";
 import {
-  CAPTION_STYLE_LIST, captionAt, drawCaption, captionFontPx,
+  CAPTION_STYLE_LIST, captionAt, drawCaption, captionFontPx, captionLineHeightDefault,
 } from "../lib/captions";
 
 function tc(t) {
@@ -38,7 +38,8 @@ export default function Editor({
   trimEnd, setTrimEnd, exportDuration,
   undo, redo, canUndo, canRedo,
   captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
-  captionSize, setCaptionSize, captionName, captionError, onCaptionFile,
+  captionSize, setCaptionSize, captionLineHeight, setCaptionLineHeight,
+  captionName, captionError, onCaptionFile,
 }) {
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
@@ -245,7 +246,7 @@ export default function Editor({
     // Captions burn in before the fades, so the fade dims them too.
     if (captionsOn && captionCues && captionCues.length) {
       const txt = captionAt(captionCues, t);
-      if (txt) drawCaption(ctx, txt, W, H, captionStyle, captionFontPx(H, captionSize));
+      if (txt) drawCaption(ctx, txt, W, H, captionStyle, captionFontPx(H, captionSize), captionLineHeight);
     }
 
     // Scene fades (opening / ending).
@@ -260,7 +261,7 @@ export default function Editor({
     }
   }, [clips, imageEls, transitionsByName, transitionDuration, motionByName, motionAmount,
       fadeIn, fadeOut, duration, exportDuration, playing, videoInfoByName, videoParams, volumeByName,
-      captionsOn, captionCues, captionStyle, captionSize]);
+      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight]);
 
   useEffect(() => { drawRef.current = draw; }, [draw]);
   useEffect(() => { timeRef.current = time; }, [time]);
@@ -678,6 +679,23 @@ export default function Editor({
                     >{lbl}</button>
                   ))}
                 </div>
+
+                <div className="mini-h" style={{ marginTop: 12 }}>Line spacing (2-line captions)</div>
+                <label className="trdur">
+                  <input
+                    type="range" min={1.0} max={2.2} step={0.05}
+                    value={captionLineHeight != null ? captionLineHeight : captionLineHeightDefault(captionStyle)}
+                    onChange={(e) => setCaptionLineHeight && setCaptionLineHeight(+e.target.value)}
+                  />
+                  <span className="trdur__val">
+                    {(captionLineHeight != null ? captionLineHeight : captionLineHeightDefault(captionStyle)).toFixed(2)}×
+                  </span>
+                </label>
+                {captionLineHeight != null && (
+                  <button type="button" className="cap-replace" onClick={() => setCaptionLineHeight && setCaptionLineHeight(null)}>
+                    reset to default
+                  </button>
+                )}
               </div>
               {captionError && <div className="note note--bad">{captionError}</div>}
             </>

@@ -115,6 +115,7 @@ export default function Home() {
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionStyle, setCaptionStyle] = useState("classic");
   const [captionSize, setCaptionSize] = useState("md");
+  const [captionLineHeight, setCaptionLineHeight] = useState(null); // null = per-style default
   const [importing, setImporting] = useState(null);   // { done, total } while decoding imports
   const [built, setBuilt] = useState(false);          // committed images to the timeline?
   const [busy, setBusy] = useState(false);
@@ -446,7 +447,7 @@ export default function Home() {
         clips: exportClips, imagesByName, videosByName, audioFile,
         width: renderDims.width, height: renderDims.height, fps,
         transitions, transitionDuration, motions, motionAmount, trims, volumes, speeds, fadeIn, fadeOut,
-        captions, captionStyle, captionSize,
+        captions, captionStyle, captionSize, captionLineHeight,
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
@@ -457,7 +458,7 @@ export default function Home() {
     }
   }, [clips, exportDuration, imagesByName, videosByName, audioFile, renderDims, fps, transitionsByName, transitionDuration,
       motionByName, motionAmount, trimByName, volumeByName, fitByName, videoInfoByName, fadeIn, fadeOut,
-      captionsOn, captionCues, captionStyle, captionSize]);
+      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight]);
 
   return (
     <main className="app">
@@ -629,6 +630,7 @@ export default function Home() {
           captionCues={captionCues} captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}
           captionStyle={captionStyle} setCaptionStyle={setCaptionStyle}
           captionSize={captionSize} setCaptionSize={setCaptionSize}
+          captionLineHeight={captionLineHeight} setCaptionLineHeight={setCaptionLineHeight}
           captionName={captionName} captionError={captionError} onCaptionFile={onCaptionFile}
         />
       )}
