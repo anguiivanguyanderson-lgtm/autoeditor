@@ -27,6 +27,7 @@ function clock(sec) {
 export default function Editor({
   clips, imageEls, audioUrl, duration, peaks, dims,
   aspect, setAspect, fps, setFps,
+  renderQuality = "full", setRenderQuality, renderDims,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
@@ -456,10 +457,19 @@ export default function Editor({
                 </select>
               </span>
             </label>
+            <label className="ctrl">
+              <span className="ctrl__label">Quality</span>
+              <span className="selectwrap">
+                <select value={renderQuality} onChange={(e) => setRenderQuality && setRenderQuality(e.target.value)}>
+                  <option value="full">Full — {dims.width}×{dims.height}</option>
+                  <option value="720p">720p — faster</option>
+                </select>
+              </span>
+            </label>
           </div>
 
           <dl className="specs">
-            <div className="spec"><dt>Resolution</dt><dd>{dims.width}×{dims.height}</dd></div>
+            <div className="spec"><dt>Resolution</dt><dd>{(renderDims || dims).width}×{(renderDims || dims).height}{renderQuality === "720p" ? " · faster" : ""}</dd></div>
             <div className="spec"><dt>Images</dt><dd>{imageCount}</dd></div>
             <div className="spec spec--length">
               <dt>Length</dt>

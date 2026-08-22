@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./globals.css";
 import { parseTimestampName } from "../lib/timestamp";
 import { buildTimeline, trimClips, LEAD_IN } from "../lib/timeline";
-import { resolveDimensions } from "../lib/dimensions";
+import { resolveDimensions, capTo720 } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo, cancelRender, getActiveRender, reconnectRender } from "../lib/serverRender";
@@ -100,6 +100,7 @@ export default function Home() {
   const [peaks, setPeaks] = useState([]);
   const [aspect, setAspect] = useState("16:9");
   const [fps, setFps] = useState(30);
+  const [renderQuality, setRenderQuality] = useState("full"); // "full" | "720p"
   const [transitionDuration, setTransitionDuration] = useState(DEFAULT_TRANSITION_DURATION);
   const [fadeIn, setFadeIn] = useState(0.5);          // opening fade seconds (0 = off)
   const [fadeOut, setFadeOut] = useState(0.6);        // ending fade seconds (0 = off)
@@ -377,6 +378,22 @@ export default function Home() {
   }, [slots]);
 
   const dims = useMemo(() => resolveDimensions(aspect, sample), [aspect, sample]);
+  // The resolution actually exported: capped to 720p when the faster option is on.
+  const renderDims = useMemo(
+    () => (renderQuality === "720p" ? capTo720(dims) : dims),
+    [renderQuality, dims]
+  );
+
+  // On mobile (touch), default to the lighter settings — ~2x faster, far less
+  // CPU/RAM load (which also helps avoid Termux connection drops). Runs once.
+  useEffect(() => {
+    try {
+      if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) {
+        setRenderQuality("720p");
+        setFps(24);
+      }
+    } catch { /* ignore */ }
+  }, []);
   const { clips, warnings } = useMemo(
     () => buildTimeline(items, audioDuration),
     [items, audioDuration]
@@ -427,7 +444,7 @@ export default function Home() {
       const captions = captionsOn && captionCues.length ? captionCues : null;
       const blob = await renderVideo({
         clips: exportClips, imagesByName, videosByName, audioFile,
-        width: dims.width, height: dims.height, fps,
+        width: renderDims.width, height: renderDims.height, fps,
         transitions, transitionDuration, motions, motionAmount, trims, volumes, speeds, fadeIn, fadeOut,
         captions, captionStyle, captionSize,
         onProgress: setProgress,
@@ -438,7 +455,7 @@ export default function Home() {
     } finally {
       if (!cancelRef.current) setBusy(false);
     }
-  }, [clips, exportDuration, imagesByName, videosByName, audioFile, dims, fps, transitionsByName, transitionDuration,
+  }, [clips, exportDuration, imagesByName, videosByName, audioFile, renderDims, fps, transitionsByName, transitionDuration,
       motionByName, motionAmount, trimByName, volumeByName, fitByName, videoInfoByName, fadeIn, fadeOut,
       captionsOn, captionCues, captionStyle, captionSize]);
 
@@ -589,6 +606,7 @@ export default function Home() {
           clips={clips} imageEls={imageEls} audioUrl={audioUrl}
           duration={audioDuration} peaks={peaks} dims={dims}
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
+          renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
           replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}
