@@ -55,7 +55,7 @@ export PORT="\${PORT:-4000}"
 # it isn't available. Force CPU with RENDER_ENCODER=libx264 if a render looks bad.
 CORES="\$(nproc 2>/dev/null || echo 4)"
 export RENDER_THREADS="\${RENDER_THREADS:-\$(( CORES > 2 ? (CORES + 1) / 2 : 1 ))}"
-export RENDER_NICE="\${RENDER_NICE:-15}"
+export RENDER_NICE="\${RENDER_NICE:-18}"
 export RENDER_ZOOM_SS="\${RENDER_ZOOM_SS:-2}"
 echo "Render load: RENDER_THREADS=\$RENDER_THREADS RENDER_NICE=\$RENDER_NICE RENDER_ZOOM_SS=\$RENDER_ZOOM_SS (hardware encoder auto-detected)"
 
