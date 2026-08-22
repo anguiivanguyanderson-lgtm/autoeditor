@@ -85,10 +85,11 @@ body {
   padding: 10px 16px; border-radius: 999px;
   background: rgba(18,22,29,.96); border: 1px solid var(--line);
   color: var(--text); font-size: 13.5px; font-weight: 600;
+  white-space: nowrap; max-width: calc(100vw - 24px);
   box-shadow: 0 8px 28px rgba(0,0,0,.45);
 }
 .importing__spin {
-  width: 14px; height: 14px; border-radius: 50%;
+  flex: none; width: 14px; height: 14px; border-radius: 50%;
   border: 2px solid rgba(91,124,250,.35); border-top-color: var(--accent);
   animation: resume-spin .8s linear infinite;
 }
