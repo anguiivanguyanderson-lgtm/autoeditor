@@ -25,8 +25,9 @@ export const CAPTION_SIZES = { sm: 0.042, md: 0.052, lg: 0.064 };
 export const CAPTION_FONT = "caption.ttf";          // path in the ffmpeg FS
 export const captionCueFile = (i) => `cap${i}.txt`;  // per-cue textfile in the FS
 
-export function captionFontPx(height, sizeId) {
-  return Math.round(height * (CAPTION_SIZES[sizeId] || CAPTION_SIZES.md));
+export function captionFontPx(height, sizeId, customScale) {
+  const frac = customScale > 0 ? customScale : (CAPTION_SIZES[sizeId] || CAPTION_SIZES.md);
+  return Math.round(height * frac);
 }
 
 const MARGIN_FACTOR = 0.07;
@@ -63,9 +64,9 @@ const lineTop = (H, fontPx, n, i, lhf = 1.16) =>
 
 // ---- render: one centered drawtext per LINE (so each line is centered) ----
 // Returns the filter chain plus the per-line textfiles to write into the FS.
-export function buildCaptionBurn(cues, styleId, width, height, sizeId, lineHeight) {
+export function buildCaptionBurn(cues, styleId, width, height, sizeId, lineHeight, fontScale) {
   const st = CAPTION_STYLES[styleId] || CAPTION_STYLES.classic;
-  const fs = captionFontPx(height, sizeId);
+  const fs = captionFontPx(height, sizeId, fontScale);
   const bw = Math.max(2, Math.round(fs / 9));
   const lhf = lineHeight > 0 ? lineHeight : lineHeightFactor(st);
   const files = [];

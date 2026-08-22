@@ -307,7 +307,7 @@ function makeBlack(dir, width, height) {
 // into `dir` by multer (image fields keyed by clip name, plus "audio").
 // Returns { paths, audioName, capChain } for buildRenderPlan.
 export async function writeInputs(dir, spec, fileMap) {
-  const { clips, width, height, captions, captionStyle = "classic", captionSize = "md", captionLineHeight } = spec;
+  const { clips, width, height, captions, captionStyle = "classic", captionSize = "md", captionLineHeight, captionFontScale } = spec;
 
   const audioName = fileMap["audio"];
   const needBlack = clips.some((c) => c.gap);
@@ -325,7 +325,7 @@ export async function writeInputs(dir, spec, fileMap) {
 
   let capChain = "";
   if (Array.isArray(captions) && captions.length) {
-    const { filter, files } = buildCaptionBurn(captions, captionStyle, width, height, captionSize, captionLineHeight);
+    const { filter, files } = buildCaptionBurn(captions, captionStyle, width, height, captionSize, captionLineHeight, captionFontScale);
     await fs.copyFile(FONT_SRC, path.join(dir, CAPTION_FONT));
     for (const f of files) await fs.writeFile(path.join(dir, f.name), f.text);
     capChain = filter;

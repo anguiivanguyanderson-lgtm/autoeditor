@@ -116,6 +116,7 @@ export default function Home() {
   const [captionStyle, setCaptionStyle] = useState("classic");
   const [captionSize, setCaptionSize] = useState("md");
   const [captionLineHeight, setCaptionLineHeight] = useState(null); // null = per-style default
+  const [captionFontScale, setCaptionFontScale] = useState(null);   // null = use the size preset
   const [importing, setImporting] = useState(null);   // { done, total } while decoding imports
   const [built, setBuilt] = useState(false);          // committed images to the timeline?
   const [busy, setBusy] = useState(false);
@@ -447,7 +448,7 @@ export default function Home() {
         clips: exportClips, imagesByName, videosByName, audioFile,
         width: renderDims.width, height: renderDims.height, fps,
         transitions, transitionDuration, motions, motionAmount, trims, volumes, speeds, fadeIn, fadeOut,
-        captions, captionStyle, captionSize, captionLineHeight,
+        captions, captionStyle, captionSize, captionLineHeight, captionFontScale,
         onProgress: setProgress,
       });
       setOutUrl(URL.createObjectURL(blob));
@@ -458,7 +459,7 @@ export default function Home() {
     }
   }, [clips, exportDuration, imagesByName, videosByName, audioFile, renderDims, fps, transitionsByName, transitionDuration,
       motionByName, motionAmount, trimByName, volumeByName, fitByName, videoInfoByName, fadeIn, fadeOut,
-      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight]);
+      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
   return (
     <main className="app">
@@ -631,6 +632,7 @@ export default function Home() {
           captionStyle={captionStyle} setCaptionStyle={setCaptionStyle}
           captionSize={captionSize} setCaptionSize={setCaptionSize}
           captionLineHeight={captionLineHeight} setCaptionLineHeight={setCaptionLineHeight}
+          captionFontScale={captionFontScale} setCaptionFontScale={setCaptionFontScale}
           captionName={captionName} captionError={captionError} onCaptionFile={onCaptionFile}
         />
       )}

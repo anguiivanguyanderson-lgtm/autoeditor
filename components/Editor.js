@@ -6,7 +6,7 @@ import {
   MIN_TRANSITION_DURATION, MAX_TRANSITION_DURATION,
 } from "../lib/transitions";
 import {
-  CAPTION_STYLE_LIST, captionAt, drawCaption, captionFontPx, captionLineHeightDefault,
+  CAPTION_STYLE_LIST, CAPTION_SIZES, captionAt, drawCaption, captionFontPx, captionLineHeightDefault,
 } from "../lib/captions";
 
 function tc(t) {
@@ -39,6 +39,7 @@ export default function Editor({
   undo, redo, canUndo, canRedo,
   captionCues, captionsOn, setCaptionsOn, captionStyle, setCaptionStyle,
   captionSize, setCaptionSize, captionLineHeight, setCaptionLineHeight,
+  captionFontScale, setCaptionFontScale,
   captionName, captionError, onCaptionFile,
 }) {
   const canvasRef = useRef(null);
@@ -246,7 +247,7 @@ export default function Editor({
     // Captions burn in before the fades, so the fade dims them too.
     if (captionsOn && captionCues && captionCues.length) {
       const txt = captionAt(captionCues, t);
-      if (txt) drawCaption(ctx, txt, W, H, captionStyle, captionFontPx(H, captionSize), captionLineHeight);
+      if (txt) drawCaption(ctx, txt, W, H, captionStyle, captionFontPx(H, captionSize, captionFontScale), captionLineHeight);
     }
 
     // Scene fades (opening / ending).
@@ -261,7 +262,7 @@ export default function Editor({
     }
   }, [clips, imageEls, transitionsByName, transitionDuration, motionByName, motionAmount,
       fadeIn, fadeOut, duration, exportDuration, playing, videoInfoByName, videoParams, volumeByName,
-      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight]);
+      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
   useEffect(() => { drawRef.current = draw; }, [draw]);
   useEffect(() => { timeRef.current = time; }, [time]);
@@ -674,11 +675,28 @@ export default function Editor({
                     <button
                       key={id}
                       type="button"
-                      className={captionSize === id ? "is-on" : ""}
-                      onClick={() => setCaptionSize(id)}
+                      className={captionFontScale == null && captionSize === id ? "is-on" : ""}
+                      onClick={() => { setCaptionSize(id); setCaptionFontScale && setCaptionFontScale(null); }}
                     >{lbl}</button>
                   ))}
                 </div>
+
+                <div className="mini-h" style={{ marginTop: 12 }}>Font size (fine-tune)</div>
+                <label className="trdur">
+                  <input
+                    type="range" min={0.03} max={0.10} step={0.002}
+                    value={captionFontScale != null ? captionFontScale : (CAPTION_SIZES[captionSize] || CAPTION_SIZES.md)}
+                    onChange={(e) => setCaptionFontScale && setCaptionFontScale(+e.target.value)}
+                  />
+                  <span className="trdur__val">
+                    {Math.round((captionFontScale != null ? captionFontScale : (CAPTION_SIZES[captionSize] || CAPTION_SIZES.md)) * 1000) / 10}%
+                  </span>
+                </label>
+                {captionFontScale != null && (
+                  <button type="button" className="cap-replace" onClick={() => setCaptionFontScale && setCaptionFontScale(null)}>
+                    reset to preset
+                  </button>
+                )}
 
                 <div className="mini-h" style={{ marginTop: 12 }}>Line spacing (2-line captions)</div>
                 <label className="trdur">
