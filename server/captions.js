@@ -12,7 +12,7 @@ export const CAPTION_STYLES = {
   boxed: {
     id: "boxed", label: "Boxed",
     fill: "#ffffff", stroke: null, box: "rgba(0,0,0,0.6)",
-    dt: (bw) => `fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=${Math.round(bw * 3.5)}`,
+    dt: (bw, fs) => `fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=${Math.max(4, Math.round(fs * 0.2))}`,
   },
   yellow: {
     id: "yellow", label: "Yellow classic",
@@ -31,9 +31,12 @@ export function captionFontPx(height, sizeId) {
 
 const MARGIN_FACTOR = 0.07;
 
+// Boxed captions need extra line spacing so their per-line boxes keep a gap.
+const lineHeightFactor = (st) => (st && st.box ? 1.85 : 1.16);
+
 // Vertical slot (top y) for line i of an n-line caption, bottom-anchored.
-const lineTop = (H, fontPx, n, i) =>
-  Math.round(H - H * MARGIN_FACTOR - (n - i) * fontPx * 1.16);
+const lineTop = (H, fontPx, n, i, lhf = 1.16) =>
+  Math.round(H - H * MARGIN_FACTOR - (n - i) * fontPx * lhf);
 
 // ---- render: one centered drawtext per LINE (so each line is centered) ----
 // Returns the filter chain plus the per-line textfiles to write into the FS.
@@ -41,6 +44,7 @@ export function buildCaptionBurn(cues, styleId, width, height, sizeId) {
   const st = CAPTION_STYLES[styleId] || CAPTION_STYLES.classic;
   const fs = captionFontPx(height, sizeId);
   const bw = Math.max(2, Math.round(fs / 9));
+  const lhf = lineHeightFactor(st);
   const files = [];
   const filters = [];
   let li = 0;
@@ -51,9 +55,9 @@ export function buildCaptionBurn(cues, styleId, width, height, sizeId) {
     for (let i = 0; i < n; i++) {
       const name = captionCueFile(li++);
       files.push({ name, text: sanitizeCueText(lines[i]) });
-      const y = lineTop(height, fs, n, i);
+      const y = lineTop(height, fs, n, i, lhf);
       filters.push(
-        `drawtext=fontfile=${CAPTION_FONT}:textfile=${name}:${st.dt(bw)}` +
+        `drawtext=fontfile=${CAPTION_FONT}:textfile=${name}:${st.dt(bw, fs)}` +
         `:fontsize=${fs}:x=(w-text_w)/2:y=${y}:enable=between(t\\,${s}\\,${e})`
       );
     }
