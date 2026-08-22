@@ -59,6 +59,14 @@ export default function Editor({
   const [currentType, setCurrentType] = useState("fade");
   const [inspect, setInspect] = useState(null);   // slot name open in the inspector
   const [dismissedWarn, setDismissedWarn] = useState(() => new Set()); // hidden warning texts
+  // On touch devices, accept="image/*"/"video/*" makes Android open Google Photos,
+  // which renames files and breaks the timestamp. Dropping accept opens the Files
+  // picker instead (keeps 0-04.mp4). onPick* still filter by type, so nothing bad
+  // gets through. Same trick as Dropzone.
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    try { setCoarse(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch { /* ignore */ }
+  }, []);
   const [pendFile, setPendFile] = useState(null);  // chosen replacement, not yet applied
   const [pendUrl, setPendUrl] = useState(null);
   const [mixMode, setMixMode] = useState(false); // Transitions panel in random-mix mode
@@ -665,11 +673,11 @@ export default function Editor({
       </aside>
 
       <input
-        ref={fileInputRef} type="file" accept="image/*,video/*" hidden
+        ref={fileInputRef} type="file" accept={coarse ? undefined : "image/*,video/*"} hidden
         onChange={onPickFile}
       />
       <input
-        ref={replaceInputRef} type="file" accept="image/*,video/*" hidden
+        ref={replaceInputRef} type="file" accept={coarse ? undefined : "image/*,video/*"} hidden
         onChange={onPickReplacement}
       />
       <input
