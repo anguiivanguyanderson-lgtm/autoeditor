@@ -114,6 +114,7 @@ export default function Home() {
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionStyle, setCaptionStyle] = useState("classic");
   const [captionSize, setCaptionSize] = useState("md");
+  const [importing, setImporting] = useState(null);   // { done, total } while decoding imports
   const [built, setBuilt] = useState(false);          // committed images to the timeline?
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -148,13 +149,18 @@ export default function Home() {
   const addImages = useCallback(async (fileList) => {
     const files = Array.from(fileList).filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (!files.length) return;
-    const loaded = await Promise.all(
-      files.map(async (f) => ({
-        file: f, seconds: parseTimestampName(f.name),
-        img: f.type.startsWith("video/") ? await loadVideoEl(f) : await loadImageEl(f),
-      }))
-    );
-    commitDoc((d) => {
+    // Decoding many files (esp. video posters) takes a few seconds with no UI —
+    // show live "loaded X of N" progress, ticking up as each file finishes.
+    setImporting({ done: 0, total: files.length });
+    try {
+      const loaded = await Promise.all(
+        files.map(async (f) => {
+          const img = f.type.startsWith("video/") ? await loadVideoEl(f) : await loadImageEl(f);
+          setImporting((p) => (p ? { ...p, done: p.done + 1 } : p));
+          return { file: f, seconds: parseTimestampName(f.name), img };
+        })
+      );
+      commitDoc((d) => {
       const next = d.slots.map((s) => ({ ...s }));
       for (const { file, seconds, img } of loaded) {
         const slot = seconds != null ? next.find((s) => s.seconds === seconds) : null;
@@ -165,7 +171,10 @@ export default function Home() {
         }
       }
       return { ...d, slots: next };
-    });
+      });
+    } finally {
+      setImporting(null);
+    }
   }, [commitDoc]);
 
   // Swap the image/video in one slot, keeping its timestamp.
@@ -498,6 +507,13 @@ export default function Home() {
           {!resume.busy && (
             <button className="resume__x" onClick={() => setResume(null)} aria-label="Dismiss">✕</button>
           )}
+        </div>
+      )}
+
+      {importing && (
+        <div className="importing" role="status" aria-live="polite">
+          <span className="importing__spin" aria-hidden="true" />
+          Loading media… {importing.done} / {importing.total}
         </div>
       )}
 
