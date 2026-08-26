@@ -499,7 +499,8 @@ export default function Editor({
           {!(busy || wcBusy) ? (
             <>
               {wcAvailable && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast render</span>
                   <button
                     type="button"
                     className={`cap-switch ${wcEnabled ? "is-on" : ""}`}
@@ -510,7 +511,6 @@ export default function Editor({
                   >
                     <span className="cap-switch__box" />
                   </button>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast GPU render (WebCodecs, beta)</span>
                 </div>
               )}
               <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>

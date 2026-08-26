@@ -1,16 +1,13 @@
-<svg width="512" height="512" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+<svg width="32" height="32" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>TryAIToday AutoEditor</title>
+  <rect x="3" y="3" width="42" height="42" rx="12" fill="url(#aeGrad)"/>
+  <rect x="3.6" y="3.6" width="40.8" height="40.8" rx="11.4" fill="none" stroke="#ffffff" stroke-opacity="0.35"/>
+  <path d="M20 15.5 L20 32.5 L33.5 24 Z" fill="#101012" stroke="#101012" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7d99ff"/>
-      <stop offset="1" stop-color="#4a68e6"/>
+    <linearGradient id="aeGrad" x1="24" y1="3" x2="24" y2="45" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#e7e8ec"/>
+      <stop offset="1" stop-color="#c9ccd2"/>
     </linearGradient>
   </defs>
-
-  <!-- simple play button: accent-blue squircle, no dark backdrop -->
-  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#tile)"/>
-
-  <!-- white play triangle -->
-  <path d="M52 40 L92 64 L52 88 Z"
-        fill="#ffffff" stroke="#ffffff" stroke-width="8"
-        stroke-linejoin="round" stroke-linecap="round"/>
 </svg>

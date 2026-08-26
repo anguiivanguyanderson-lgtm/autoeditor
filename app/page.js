@@ -7,11 +7,18 @@ import { resolveDimensions, capTo720 } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo, cancelRender, getActiveRender, reconnectRender } from "../lib/serverRender";
-import { renderWebCodecs, webCodecsSupported } from "../lib/webcodecsRender";
+import { renderWebCodecs, webCodecsSupported, startKeepAwake } from "../lib/webcodecsRender";
 import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
 import Editor from "../components/Editor";
+import ProjectsHome from "../components/ProjectsHome";
+import StorageRing from "../components/StorageRing";
+import { DialogHost, showAlert, showPrompt } from "../components/Dialog";
+import {
+  requestPersist, storageEstimate, listProjects, getProject, saveProject,
+  renameProject, deleteProject, getMedia, syncMedia, newId,
+} from "../lib/projectStore";
 
 function loadImageEl(file) {
   return new Promise((resolve) => {
@@ -86,9 +93,10 @@ function useHistory(initial) {
     const nxt = h.future[0];
     return { past: [...h.past, h.present], present: nxt, future: h.future.slice(1) };
   }), []);
+  const reset = useCallback((present) => setHist({ past: [], present, future: [] }), []);
   return [
     hist.present, commit,
-    { undo, redo, canUndo: hist.past.length > 0, canRedo: hist.future.length > 0 },
+    { undo, redo, canUndo: hist.past.length > 0, canRedo: hist.future.length > 0, reset },
   ];
 }
 
@@ -127,11 +135,18 @@ export default function Home() {
   // A render that was already running when this tab loaded (e.g. reopened after
   // closing the browser mid-render). Shown as a banner and reconnected to.
   const [resume, setResume] = useState(null); // { busy, progress, url, error }
+  // Projects: everything is stored client-side in IndexedDB (see lib/projectStore).
+  const [view, setView] = useState("list");            // "list" (projects grid) | "editor"
+  const [projects, setProjects] = useState([]);
+  const [currentProject, setCurrentProject] = useState(null); // { id, name, createdAt }
+  const [storage, setStorage] = useState({ usage: 0, quota: 0 });
+  const [loadingProject, setLoadingProject] = useState(false);
+  const saveRef = useRef(null);
   const idRef = useRef(0);
   const nextId = () => `s${idRef.current++}`;
 
   // Composition (undoable): slots + per-clip transition choices, snapshotted together.
-  const [doc, commitDoc, { undo, redo, canUndo, canRedo }] =
+  const [doc, commitDoc, { undo, redo, canUndo, canRedo, reset: resetDoc }] =
     useHistory({ slots: [], transitionsByName: {} });
   const { slots, transitionsByName } = doc;
 
@@ -410,6 +425,185 @@ export default function Home() {
   const ready = audioFile && clips.length > 0;
   const showEditor = built && ready;
 
+  // --- Projects: client-side persistence (IndexedDB) ------------------------
+  // On launch, ask for durable storage and load the saved projects list.
+  useEffect(() => {
+    (async () => {
+      try {
+        await requestPersist();
+        setProjects(await listProjects());
+        setStorage(await storageEstimate());
+      } catch (_) {}
+    })();
+  }, []);
+
+  const resetAllState = useCallback(() => {
+    setAudioFile(null); setAudioUrl(null); setAudioDuration(0); setPeaks([]);
+    setAspect("16:9"); setFps(30); setRenderQuality("full");
+    setTransitionDuration(DEFAULT_TRANSITION_DURATION); setFadeIn(0.5); setFadeOut(0.6);
+    setMotionByName({}); setMotionAmount(0.08); setTrimByName({}); setVolumeByName({}); setFitByName({});
+    setTrimEnd(0);
+    setCaptionRaw(null); setCaptionName(null); setCaptionsOn(false); setCaptionStyle("classic");
+    setCaptionSize("md"); setCaptionLineHeight(null); setCaptionFontScale(null);
+    setError(null); setOutUrl(null); setProgress(0);
+    idRef.current = 0;
+    resetDoc({ slots: [], transitionsByName: {} });
+    setBuilt(false);
+  }, [resetDoc]);
+
+  const newProject = useCallback(() => {
+    resetAllState();
+    setCurrentProject({ id: newId(), name: "Untitled project", createdAt: Date.now() });
+    setView("editor");
+  }, [resetAllState]);
+
+  // A small JPEG thumbnail from the first image, stored with the project.
+  const makeThumb = useCallback(() => {
+    const s = slots.find((x) => !x.empty && x.img);
+    const img = s && s.img;
+    if (!img) return null;
+    try {
+      const iw = img.naturalWidth || img.videoWidth || 320;
+      const ih = img.naturalHeight || img.videoHeight || 180;
+      const W = 320, H = Math.max(1, Math.round((W * ih) / iw));
+      const c = document.createElement("canvas"); c.width = W; c.height = H;
+      c.getContext("2d").drawImage(img, 0, 0, W, H);
+      return c.toDataURL("image/jpeg", 0.7);
+    } catch (_) { return (img.url && String(img.url).startsWith("data:")) ? img.url : null; }
+  }, [slots]);
+
+  // Serialize the edit state (no media bytes) for the projects store.
+  const buildProjectData = useCallback(() => ({
+    v: 1,
+    settings: { aspect, fps, renderQuality, transitionDuration, fadeIn, fadeOut, motionAmount, trimEnd },
+    maps: { motionByName, trimByName, volumeByName, fitByName },
+    captions: { captionRaw, captionName, captionsOn, captionStyle, captionSize, captionLineHeight, captionFontScale },
+    transitionsByName,
+    slots: slots.map((s) => ({
+      id: s.id, seconds: s.seconds, empty: !!s.empty,
+      fileName: s.file ? s.file.name : (s.img && s.img.fileName) || null,
+      isVideo: !!(s.img && s.img.isVideo),
+    })),
+    audioName: audioFile ? audioFile.name : null,
+    idCounter: idRef.current,
+    built,
+  }), [aspect, fps, renderQuality, transitionDuration, fadeIn, fadeOut, motionAmount, trimEnd,
+      motionByName, trimByName, volumeByName, fitByName,
+      captionRaw, captionName, captionsOn, captionStyle, captionSize, captionLineHeight, captionFontScale,
+      transitionsByName, slots, audioFile, built]);
+
+  const saveCurrent = useCallback(async () => {
+    const proj = currentProject;
+    if (!proj) return;
+    try {
+      const rec = {
+        id: proj.id, name: proj.name, createdAt: proj.createdAt || Date.now(),
+        thumb: makeThumb(), durationSec: exportDuration, clipCount: clips.length,
+        data: buildProjectData(),
+      };
+      await saveProject(rec);
+      const wanted = new Map();
+      if (audioFile) wanted.set("audio", audioFile);
+      for (const s of slots) if (!s.empty && s.file) wanted.set(s.id, s.file);
+      await syncMedia(proj.id, wanted);
+      try { setStorage(await storageEstimate()); } catch (_) {}
+    } catch (_) { /* storage full or unavailable — keep editing */ }
+  }, [currentProject, makeThumb, exportDuration, clips.length, buildProjectData, audioFile, slots]);
+  saveRef.current = saveCurrent;
+
+  // Debounced autosave whenever the composition changes.
+  useEffect(() => {
+    if (view !== "editor" || !currentProject) return;
+    const t = setTimeout(() => { if (saveRef.current) saveRef.current(); }, 1200);
+    return () => clearTimeout(t);
+  }, [view, currentProject, slots, transitionsByName, aspect, fps, renderQuality, transitionDuration,
+      fadeIn, fadeOut, motionByName, motionAmount, trimByName, volumeByName, fitByName, trimEnd,
+      captionRaw, captionName, captionsOn, captionStyle, captionSize, captionLineHeight, captionFontScale,
+      audioFile, built]);
+
+  const openProject = useCallback(async (id) => {
+    const rec = await getProject(id);
+    if (!rec) return;
+    setLoadingProject(true);
+    try {
+      const d = rec.data || {};
+      // Audio
+      if (d.audioName) {
+        const blob = await getMedia(id, "audio");
+        if (blob) {
+          const file = new File([blob], d.audioName, { type: blob.type || "audio/mpeg" });
+          setAudioFile(file); setAudioUrl(URL.createObjectURL(file));
+          try { setAudioDuration(await getAudioDuration(file)); } catch (_) {}
+          getWaveformPeaks(file).then(setPeaks).catch(() => {});
+        } else { setAudioFile(null); setAudioUrl(null); setAudioDuration(0); setPeaks([]); }
+      } else { setAudioFile(null); setAudioUrl(null); setAudioDuration(0); setPeaks([]); }
+      // Slots (rebuild images/videos from stored blobs)
+      const newSlots = [];
+      for (const sm of (d.slots || [])) {
+        if (sm.empty) { newSlots.push({ id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true }); continue; }
+        const blob = await getMedia(id, sm.id);
+        if (!blob) { newSlots.push({ id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true }); continue; }
+        const file = new File([blob], sm.fileName || sm.id, { type: blob.type || (sm.isVideo ? "video/mp4" : "image/png") });
+        const img = sm.isVideo ? await loadVideoEl(file) : await loadImageEl(file);
+        newSlots.push({ id: sm.id, seconds: sm.seconds, file, img, empty: false });
+      }
+      resetDoc({ slots: newSlots, transitionsByName: d.transitionsByName || {} });
+      const st = d.settings || {};
+      setAspect(st.aspect ?? "16:9"); setFps(st.fps ?? 30); setRenderQuality(st.renderQuality ?? "full");
+      setTransitionDuration(st.transitionDuration ?? DEFAULT_TRANSITION_DURATION);
+      setFadeIn(st.fadeIn ?? 0.5); setFadeOut(st.fadeOut ?? 0.6);
+      setMotionAmount(st.motionAmount ?? 0.08); setTrimEnd(st.trimEnd ?? 0);
+      const mp = d.maps || {};
+      setMotionByName(mp.motionByName || {}); setTrimByName(mp.trimByName || {});
+      setVolumeByName(mp.volumeByName || {}); setFitByName(mp.fitByName || {});
+      const cp = d.captions || {};
+      setCaptionRaw(cp.captionRaw ?? null); setCaptionName(cp.captionName ?? null);
+      setCaptionsOn(!!cp.captionsOn); setCaptionStyle(cp.captionStyle ?? "classic");
+      setCaptionSize(cp.captionSize ?? "md"); setCaptionLineHeight(cp.captionLineHeight ?? null);
+      setCaptionFontScale(cp.captionFontScale ?? null);
+      idRef.current = d.idCounter || newSlots.length;
+      setBuilt(!!d.built);
+      setError(null); setOutUrl(null); setProgress(0);
+      setCurrentProject({ id: rec.id, name: rec.name, createdAt: rec.createdAt });
+      setView("editor");
+    } finally { setLoadingProject(false); }
+  }, [resetDoc]);
+
+  // navigator.storage.estimate() lags behind an IndexedDB delete/write, so re-poll
+  // a few times to catch the freed/added space without needing a manual refresh.
+  const refreshStorage = useCallback(() => {
+    const tick = async () => { try { setStorage(await storageEstimate()); } catch (_) {} };
+    tick();
+    setTimeout(tick, 500);
+    setTimeout(tick, 1500);
+    setTimeout(tick, 3000);
+  }, []);
+
+  const backToProjects = useCallback(async () => {
+    if (saveRef.current) await saveRef.current();
+    setProjects(await listProjects());
+    refreshStorage();
+    setView("list");
+  }, [refreshStorage]);
+
+  const onRenameProject = useCallback(async (id, name) => {
+    await renameProject(id, name);
+    setCurrentProject((p) => (p && p.id === id ? { ...p, name } : p));
+    setProjects(await listProjects());
+  }, []);
+  const onDeleteProject = useCallback(async (id) => {
+    await deleteProject(id);
+    setProjects(await listProjects());
+    refreshStorage();
+  }, [refreshStorage]);
+  const renameCurrent = useCallback(async () => {
+    if (!currentProject) return;
+    const name = await showPrompt("Rename project", {
+      title: "Rename project", defaultValue: currentProject.name || "Untitled project", okText: "Rename",
+    });
+    if (name && name.trim()) onRenameProject(currentProject.id, name.trim());
+  }, [currentProject, onRenameProject]);
+
   const cancelRef = useRef(false);
   const onCancel = useCallback(() => {
     cancelRef.current = true;
@@ -467,21 +661,36 @@ export default function Home() {
   const [wcProgress, setWcProgress] = useState(0);
   const [wcOk, setWcOk] = useState(false);
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
-  const [isDesktop, setIsDesktop] = useState(true);
   useEffect(() => {
     setWcOk(webCodecsSupported());
-    try { setIsDesktop(window.matchMedia("(min-width: 720px)").matches); } catch (_) {} // desktop-width only; phones (Termux) are narrow
   }, []);
   const onWebCodecsTest = useCallback(async () => {
     setWcBusy(true); setWcProgress(0);
+    // Play inaudible audio for the duration so a backgrounded tab keeps rendering
+    // at full speed (started here, inside the click gesture, so it's allowed).
+    const stopKeepAwake = startKeepAwake();
     try {
       const exportClips = trimClips(clips, exportDuration);
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const motions = exportClips.map((c) => motionByName[c.name] || "none");
+      // Per-clip video params (parallel to exportClips), same as the ffmpeg path.
+      const trims = exportClips.map((c) =>
+        (videoInfoByName[c.name] && fitByName[c.name] === "trim") ? (trimByName[c.name] || 0) : 0);
+      const speeds = exportClips.map((c) => {
+        const info = videoInfoByName[c.name];
+        if (!info) return 1;
+        const mode = fitByName[c.name] || "fit";
+        const dur = info.duration || 0, slot = c.duration || 0;
+        return (mode === "fit" && slot > 0 && dur > slot) ? +(dur / slot).toFixed(4) : 1;
+      });
+      const volumes = exportClips.map((c) =>
+        Object.prototype.hasOwnProperty.call(videosByName, c.name)
+          ? (volumeByName[c.name] == null ? 0.5 : volumeByName[c.name]) : 0);
       const blob = await renderWebCodecs(
         {
           clips: exportClips, width: renderDims.width, height: renderDims.height, fps,
           transitions, transitionDuration, motions, motionAmount, audioFile,
+          videosByName, trims, speeds, volumes,
           cues: captionsOn && captionCues.length ? captionCues : null,
           captionStyle, captionSize, captionLineHeight, captionFontScale,
         },
@@ -493,26 +702,51 @@ export default function Home() {
       a.href = url; a.download = "webcodecs-test.mp4"; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      alert("WebCodecs test failed: " + (e && e.message ? e.message : e));
+      showAlert(e && e.message ? e.message : String(e), { title: "Fast render failed" });
     } finally {
+      stopKeepAwake();
       setWcBusy(false);
     }
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
+      videosByName, videoInfoByName, fitByName, trimByName, volumeByName,
       captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
+  if (view === "list") {
+    return (
+      <>
+        <DialogHost />
+        <ProjectsHome
+          projects={projects}
+          onNew={newProject}
+          onOpen={openProject}
+          onRename={onRenameProject}
+          onDelete={onDeleteProject}
+          storage={storage}
+        />
+      </>
+    );
+  }
+
   return (
+    <>
+    <DialogHost />
     <main className="app">
-      <header className={`bar${showEditor ? "" : " bar--onboard"}`}>
-        <div className="brand">
+      {loadingProject && (
+        <div className="importing" role="status" aria-live="polite">
+          <span className="importing__spin" aria-hidden="true" />
+          Opening project…
+        </div>
+      )}
+      <header className="nav">
+        <div className="nav__brand">
           <img className="brand__logo" src="/logo.svg" alt="" width="28" height="28" />
           <span className="brand__name"><span className="brand__pre">TryAIToday</span> AutoEditor</span>
-          <span className="brand__ver">v2</span>
           <span className="brand__tag">image + video · voiceover sync</span>
         </div>
-        <div className="bar__actions">
+        <div className="nav__links">
           <a
             className="dc-link"
-            href="https://discord.gg/RSZrJTFxp"
+            href="https://discord.gg/5sxVBf3kx8"
             target="_blank"
             rel="noopener noreferrer"
             title="Join the TryAIToday Discord"
@@ -532,20 +766,30 @@ export default function Home() {
             <span className="ext-link__icon" aria-hidden="true">🧩</span>
             <span className="ext-link__text">Get the Extension</span>
           </a>
-          <div className="bar__io">
-            <Dropzone
-              compact accept="audio/*" onFiles={onAudio} icon="♪"
-              title="Import voiceover" filled={!!audioFile}
-              filledLabel={audioFile ? audioFile.name : ""}
-            />
-            <Dropzone
-              compact multiple accept="image/*,video/*" onFiles={addImages} icon="▦"
-              title="Add media" filled={imageCount > 0}
-              filledLabel={imageCount ? `${imageCount} clips` : ""}
-            />
-          </div>
+          <StorageRing storage={storage} />
         </div>
       </header>
+
+      <div className={`projbar${showEditor ? "" : " projbar--onboard"}`}>
+        <div className="projbar__id">
+          <button className="brand__back" onClick={backToProjects} title="Back to your projects">←</button>
+          <button className="brand__proj" onClick={renameCurrent} title="Rename project">
+            {currentProject ? (currentProject.name || "Untitled project") : "AutoEditor"}
+          </button>
+        </div>
+        <div className="bar__io">
+          <Dropzone
+            compact accept="audio/*" onFiles={onAudio} icon="♪"
+            title="Import voiceover" filled={!!audioFile}
+            filledLabel={audioFile ? audioFile.name : ""}
+          />
+          <Dropzone
+            compact multiple accept="image/*,video/*" onFiles={addImages} icon="▦"
+            title="Add media" filled={imageCount > 0}
+            filledLabel={imageCount ? `${imageCount} clips` : ""}
+          />
+        </div>
+      </div>
 
       {resume && (
         <div className={`resume${resume.url ? " resume--done" : resume.error ? " resume--bad" : ""}`}>
@@ -648,7 +892,7 @@ export default function Home() {
           duration={audioDuration} peaks={peaks} dims={dims}
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
-          onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk && isDesktop && Object.keys(videosByName).length === 0}
+          onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk}
           wcEnabled={wcEnabled} setWcEnabled={setWcEnabled}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
@@ -679,5 +923,6 @@ export default function Home() {
       )}
       </div>
     </main>
+    </>
   );
 }
