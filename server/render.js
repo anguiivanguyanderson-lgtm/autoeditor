@@ -325,7 +325,7 @@ function buildSegmentedPlan(spec, io, total) {
     });
     const fc = `fc_s${s}.txt`, out = `seg${s}.mp4`;
     const args = [...inputs, "-filter_complex_script", fc, "-map", `[${last}]`, "-an", ...intermediateCodecArgs(encoder), "-t", segDur.toFixed(3), out];
-    passes.push({ name: `segment ${s + 1}/${chunks.length}`, args, filterFiles: [{ name: fc, text: parts.join(";") }], output: out, total: Math.round(segDur * fps) });
+    passes.push({ name: `segment ${s + 1}/${chunks.length}`, args, filterFiles: [{ name: fc, text: parts.join(";") }], output: out, total: segDur });
     segFiles.push(out); segDurs.push(segDur);
     if (s > 0) boundaries.push({ name: xfadeName(transitions && transitions[lo]), d: tdur(lo) });
   });
@@ -339,7 +339,7 @@ function buildSegmentedPlan(spec, io, total) {
   }
   const joinFc = "fc_join.txt";
   const { args, text } = buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capChain, audioName, audioClips, fadeIn, fadeOut, total, encoder }, joinFc);
-  passes.push({ name: "join", args, filterFiles: [{ name: joinFc, text }], output: "output.mp4", total: Math.round(total * fps) });
+  passes.push({ name: "join", args, filterFiles: [{ name: joinFc, text }], output: "output.mp4", total });
   return { mode: "segmented", total, passes };
 }
 
