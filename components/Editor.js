@@ -499,17 +499,19 @@ export default function Editor({
           {!(busy || wcBusy) ? (
             <>
               {wcAvailable && (
-                <button
-                  type="button"
-                  className={`cap-switch ${wcEnabled ? "is-on" : ""}`}
-                  onClick={() => setWcEnabled && setWcEnabled((v) => !v)}
-                  aria-pressed={!!wcEnabled}
-                  title="Render on the GPU via WebCodecs — faster for image-only projects (beta)"
-                  style={{ marginBottom: 8 }}
-                >
-                  <span className="cap-switch__box" />
-                  ⚡ Fast GPU render (WebCodecs, beta)
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    className={`cap-switch ${wcEnabled ? "is-on" : ""}`}
+                    onClick={() => setWcEnabled && setWcEnabled((v) => !v)}
+                    aria-pressed={!!wcEnabled}
+                    aria-label="Fast GPU render (WebCodecs)"
+                    title="Render on the GPU via WebCodecs — faster for image-only projects (beta)"
+                  >
+                    <span className="cap-switch__box" />
+                  </button>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast GPU render (WebCodecs, beta)</span>
+                </div>
               )}
               <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>
             </>

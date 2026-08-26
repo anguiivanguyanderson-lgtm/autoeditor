@@ -466,8 +466,12 @@ export default function Home() {
   const [wcBusy, setWcBusy] = useState(false);
   const [wcProgress, setWcProgress] = useState(0);
   const [wcOk, setWcOk] = useState(false);
-  const [wcEnabled, setWcEnabled] = useState(false);
-  useEffect(() => { setWcOk(webCodecsSupported()); }, []);
+  const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
+  const [isDesktop, setIsDesktop] = useState(true);
+  useEffect(() => {
+    setWcOk(webCodecsSupported());
+    try { setIsDesktop(window.matchMedia("(any-pointer: fine)").matches); } catch (_) {} // hide the WebCodecs flow on touch/mobile
+  }, []);
   const onWebCodecsTest = useCallback(async () => {
     setWcBusy(true); setWcProgress(0);
     try {
@@ -644,7 +648,7 @@ export default function Home() {
           duration={audioDuration} peaks={peaks} dims={dims}
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
-          onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk && Object.keys(videosByName).length === 0}
+          onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk && isDesktop && Object.keys(videosByName).length === 0}
           wcEnabled={wcEnabled} setWcEnabled={setWcEnabled}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
