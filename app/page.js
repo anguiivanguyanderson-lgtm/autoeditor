@@ -6,7 +6,7 @@ import { buildTimeline, trimClips, LEAD_IN } from "../lib/timeline";
 import { resolveDimensions, capTo720 } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
-import { renderVideo, cancelRender, getActiveRender, reconnectRender } from "../lib/serverRender";
+import { renderVideo, cancelRender, getActiveRender, reconnectRender, probeBackend } from "../lib/serverRender";
 import { renderWebCodecs, webCodecsSupported, startKeepAwake } from "../lib/webcodecsRender";
 import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
@@ -663,9 +663,11 @@ export default function Home() {
   const [wcBusy, setWcBusy] = useState(false);
   const [wcProgress, setWcProgress] = useState(0);
   const [wcOk, setWcOk] = useState(false);
+  const [serverAvailable, setServerAvailable] = useState(false); // ffmpeg backend reachable?
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
   useEffect(() => {
     setWcOk(webCodecsSupported());
+    probeBackend().then(setServerAvailable).catch(() => setServerAvailable(false));
   }, []);
   const onWebCodecsTest = useCallback(async () => {
     setWcBusy(true); setWcProgress(0);
@@ -904,7 +906,7 @@ export default function Home() {
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
           onWebCodecsTest={onWebCodecsTest} onWebCodecsCancel={onWebCodecsCancel}
-          wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk}
+          wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk} serverAvailable={serverAvailable}
           wcEnabled={wcEnabled} setWcEnabled={setWcEnabled}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}

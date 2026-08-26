@@ -29,7 +29,7 @@ export default function Editor({
   aspect, setAspect, fps, setFps,
   renderQuality = "full", setRenderQuality, renderDims,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
-  onWebCodecsTest, onWebCodecsCancel, wcBusy, wcProgress, wcAvailable, wcEnabled, setWcEnabled,
+  onWebCodecsTest, onWebCodecsCancel, wcBusy, wcProgress, wcAvailable, serverAvailable, wcEnabled, setWcEnabled,
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
@@ -497,7 +497,9 @@ export default function Editor({
             </div>
           )}
 
-          {wcAvailable && (
+          {/* Toggle only when BOTH paths exist (a render backend + WebCodecs).
+              With no backend (e.g. Vercel) the app is WebCodecs-only, no toggle. */}
+          {wcAvailable && serverAvailable && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, opacity: (busy || wcBusy) ? 0.5 : 1 }}>
               <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast render</span>
               <button
@@ -514,7 +516,14 @@ export default function Editor({
             </div>
           )}
           {!(busy || wcBusy) ? (
-            <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>
+            (wcAvailable || serverAvailable) ? (
+              <button
+                className="render"
+                onClick={(wcAvailable && (!serverAvailable || wcEnabled)) ? onWebCodecsTest : onRender}
+              >Render MP4</button>
+            ) : (
+              <div className="note">Rendering needs Chrome, Edge, or Safari 16.4+ (WebCodecs) in this browser.</div>
+            )
           ) : (
             <>
               <button className="render render--busy" disabled>
