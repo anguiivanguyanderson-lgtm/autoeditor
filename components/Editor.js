@@ -499,14 +499,17 @@ export default function Editor({
           {!(busy || wcBusy) ? (
             <>
               {wcAvailable && (
-                <label
-                  className="wc-toggle"
+                <button
+                  type="button"
+                  className={`cap-switch ${wcEnabled ? "is-on" : ""}`}
+                  onClick={() => setWcEnabled && setWcEnabled((v) => !v)}
+                  aria-pressed={!!wcEnabled}
                   title="Render on the GPU via WebCodecs — faster for image-only projects (beta)"
-                  style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12.5, cursor: "pointer", opacity: 0.85 }}
+                  style={{ marginBottom: 8 }}
                 >
-                  <input type="checkbox" checked={!!wcEnabled} onChange={(e) => setWcEnabled && setWcEnabled(e.target.checked)} />
-                  <span>⚡ Fast GPU render (WebCodecs, beta)</span>
-                </label>
+                  <span className="cap-switch__box" />
+                  ⚡ Fast GPU render (WebCodecs, beta)
+                </button>
               )}
               <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>
             </>
