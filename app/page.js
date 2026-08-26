@@ -474,7 +474,12 @@ export default function Home() {
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const motions = exportClips.map((c) => motionByName[c.name] || "none");
       const blob = await renderWebCodecs(
-        { clips: exportClips, width: renderDims.width, height: renderDims.height, fps, transitions, transitionDuration, motions, motionAmount, audioFile },
+        {
+          clips: exportClips, width: renderDims.width, height: renderDims.height, fps,
+          transitions, transitionDuration, motions, motionAmount, audioFile,
+          cues: captionsOn && captionCues.length ? captionCues : null,
+          captionStyle, captionSize, captionLineHeight, captionFontScale,
+        },
         imagesByName,
         setWcProgress,
       );
@@ -487,7 +492,8 @@ export default function Home() {
     } finally {
       setWcBusy(false);
     }
-  }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile]);
+  }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
+      captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
   return (
     <main className="app">
