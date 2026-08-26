@@ -29,6 +29,7 @@ export default function Editor({
   aspect, setAspect, fps, setFps,
   renderQuality = "full", setRenderQuality, renderDims,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
+  onWebCodecsTest, wcBusy, wcProgress, wcAvailable,
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
@@ -509,6 +510,18 @@ export default function Editor({
               </div>
               <button className="cancel" onClick={onCancel}>Cancel</button>
             </>
+          )}
+          {wcAvailable && !busy && (
+            <button
+              type="button"
+              className="render"
+              onClick={onWebCodecsTest}
+              disabled={wcBusy}
+              title="Experimental: render video-only on the GPU (WebCodecs, no audio yet)"
+              style={{ marginTop: 8, background: wcBusy ? "#3a3f6b" : "#5b6cff" }}
+            >
+              {wcBusy ? `⚡ WebCodecs ${Math.round(wcProgress * 100)}%` : "⚡ WebCodecs test (beta)"}
+            </button>
           )}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}

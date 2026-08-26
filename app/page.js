@@ -499,17 +499,6 @@ export default function Home() {
           <span className="brand__tag">image + video · voiceover sync</span>
         </div>
         <div className="bar__actions">
-          {showEditor && wcOk && Object.keys(videosByName).length === 0 && (
-            <button
-              type="button"
-              onClick={onWebCodecsTest}
-              disabled={wcBusy}
-              title="Experimental: render video-only on the GPU via WebCodecs (no audio yet)"
-              style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid rgba(120,130,255,0.5)", background: wcBusy ? "#3a3f6b" : "#5b6cff", color: "#fff", cursor: wcBusy ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}
-            >
-              {wcBusy ? `⚡ WebCodecs ${Math.round(wcProgress * 100)}%` : "⚡ WebCodecs test"}
-            </button>
-          )}
           <a
             className="dc-link"
             href="https://discord.gg/RSZrJTFxp"
@@ -648,6 +637,7 @@ export default function Home() {
           duration={audioDuration} peaks={peaks} dims={dims}
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
+          onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk && Object.keys(videosByName).length === 0}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
           replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}
