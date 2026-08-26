@@ -466,6 +466,7 @@ export default function Home() {
   const [wcBusy, setWcBusy] = useState(false);
   const [wcProgress, setWcProgress] = useState(0);
   const [wcOk, setWcOk] = useState(false);
+  const [wcEnabled, setWcEnabled] = useState(false);
   useEffect(() => { setWcOk(webCodecsSupported()); }, []);
   const onWebCodecsTest = useCallback(async () => {
     setWcBusy(true); setWcProgress(0);
@@ -644,6 +645,7 @@ export default function Home() {
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
           onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk && Object.keys(videosByName).length === 0}
+          wcEnabled={wcEnabled} setWcEnabled={setWcEnabled}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
           replaceImage={replaceImage} removeImage={removeImage} fillGap={fillGap}

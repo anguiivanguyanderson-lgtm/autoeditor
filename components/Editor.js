@@ -29,7 +29,7 @@ export default function Editor({
   aspect, setAspect, fps, setFps,
   renderQuality = "full", setRenderQuality, renderDims,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
-  onWebCodecsTest, wcBusy, wcProgress, wcAvailable,
+  onWebCodecsTest, wcBusy, wcProgress, wcAvailable, wcEnabled, setWcEnabled,
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
@@ -498,18 +498,17 @@ export default function Editor({
 
           {!(busy || wcBusy) ? (
             <>
-              <button className="render" onClick={onRender}>Render MP4</button>
               {wcAvailable && (
-                <button
-                  type="button"
-                  className="render"
-                  onClick={onWebCodecsTest}
-                  title="Faster GPU render via WebCodecs — best for image-only projects"
-                  style={{ marginTop: 8, background: "#5b6cff" }}
+                <label
+                  className="wc-toggle"
+                  title="Render on the GPU via WebCodecs — faster for image-only projects (beta)"
+                  style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 12.5, cursor: "pointer", opacity: 0.85 }}
                 >
-                  ⚡ WebCodecs render (beta)
-                </button>
+                  <input type="checkbox" checked={!!wcEnabled} onChange={(e) => setWcEnabled && setWcEnabled(e.target.checked)} />
+                  <span>⚡ Fast GPU render (WebCodecs, beta)</span>
+                </label>
               )}
+              <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>
             </>
           ) : (
             <>
