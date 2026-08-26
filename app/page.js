@@ -7,6 +7,7 @@ import { resolveDimensions, capTo720 } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo, cancelRender, getActiveRender, reconnectRender } from "../lib/serverRender";
+import { renderWebCodecs, webCodecsSupported } from "../lib/webcodecsRender";
 import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
@@ -461,6 +462,33 @@ export default function Home() {
       motionByName, motionAmount, trimByName, volumeByName, fitByName, videoInfoByName, fadeIn, fadeOut,
       captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
+  // --- SPIKE: WebCodecs GPU render (video-only, no audio). Proves the pipeline. ---
+  const [wcBusy, setWcBusy] = useState(false);
+  const [wcProgress, setWcProgress] = useState(0);
+  const [wcOk, setWcOk] = useState(false);
+  useEffect(() => { setWcOk(webCodecsSupported()); }, []);
+  const onWebCodecsTest = useCallback(async () => {
+    setWcBusy(true); setWcProgress(0);
+    try {
+      const exportClips = trimClips(clips, exportDuration);
+      const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
+      const motions = exportClips.map((c) => motionByName[c.name] || "none");
+      const blob = await renderWebCodecs(
+        { clips: exportClips, width: renderDims.width, height: renderDims.height, fps, transitions, transitionDuration, motions, motionAmount },
+        imagesByName,
+        setWcProgress,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "webcodecs-test.mp4"; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      alert("WebCodecs test failed: " + (e && e.message ? e.message : e));
+    } finally {
+      setWcBusy(false);
+    }
+  }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount]);
+
   return (
     <main className="app">
       <header className={`bar${showEditor ? "" : " bar--onboard"}`}>
@@ -471,6 +499,17 @@ export default function Home() {
           <span className="brand__tag">image + video · voiceover sync</span>
         </div>
         <div className="bar__actions">
+          {showEditor && wcOk && Object.keys(videosByName).length === 0 && (
+            <button
+              type="button"
+              onClick={onWebCodecsTest}
+              disabled={wcBusy}
+              title="Experimental: render video-only on the GPU via WebCodecs (no audio yet)"
+              style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid rgba(120,130,255,0.5)", background: wcBusy ? "#3a3f6b" : "#5b6cff", color: "#fff", cursor: wcBusy ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}
+            >
+              {wcBusy ? `⚡ WebCodecs ${Math.round(wcProgress * 100)}%` : "⚡ WebCodecs test"}
+            </button>
+          )}
           <a
             className="dc-link"
             href="https://discord.gg/RSZrJTFxp"
