@@ -470,7 +470,7 @@ export default function Home() {
   const [isDesktop, setIsDesktop] = useState(true);
   useEffect(() => {
     setWcOk(webCodecsSupported());
-    try { setIsDesktop(window.matchMedia("(any-pointer: fine)").matches); } catch (_) {} // hide the WebCodecs flow on touch/mobile
+    try { setIsDesktop(window.matchMedia("(min-width: 720px)").matches); } catch (_) {} // desktop-width only; phones (Termux) are narrow
   }, []);
   const onWebCodecsTest = useCallback(async () => {
     setWcBusy(true); setWcProgress(0);
