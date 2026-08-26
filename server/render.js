@@ -43,13 +43,15 @@ function stillStream(i, width, height, fps) {
 const VIDEO_RE = /\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i;
 const isVideoPath = (p) => !!p && VIDEO_RE.test(p);
 
-// atempo only takes 0.5–2.0 per instance, so chain it for larger speed-ups
-// (audio equivalent of setpts video speed). Returns "" for ~1x.
+// atempo only takes 0.5–2.0 per instance, so chain it for larger speed-ups AND
+// slow-downs (audio equivalent of setpts video speed). Returns "" for ~1x.
 function atempoChain(speed) {
   let s = speed;
   const parts = [];
+  if (!(s > 0) || Math.abs(s - 1) < 1e-4) return "";
   while (s > 2.0001) { parts.push("atempo=2.0"); s /= 2.0; }
-  if (s > 1.0001) parts.push(`atempo=${s.toFixed(4)}`);
+  while (s < 0.5 - 1e-9) { parts.push("atempo=0.5"); s /= 0.5; }
+  if (Math.abs(s - 1) > 1e-4) parts.push(`atempo=${s.toFixed(4)}`);
   return parts.join(",");
 }
 
@@ -60,13 +62,15 @@ function atempoChain(speed) {
 // PTS. With motion, an animated Ken Burns zoom is layered on (zoompan d=1).
 function videoStream(i, W, H, fps, span, motionType, amount, speed = 1) {
   const S = span.toFixed(3);
-  const fast = speed > 1.0001;
-  const spd = fast ? `,setpts=(PTS-STARTPTS)/${speed.toFixed(4)}` : "";
+  // speed > 1 fast-forwards, speed < 1 slows down (both via setpts) so the whole
+  // clip fills its slot. tpad clone still backstops any residual short footage.
+  const changed = speed > 0 && Math.abs(speed - 1) > 0.001;
+  const spd = changed ? `,setpts=(PTS-STARTPTS)/${speed.toFixed(4)}` : "";
   const base = `[${i}:v]${vfChain(W, H, fps)}${spd},` +
     `tpad=stop_mode=clone:stop_duration=${S},trim=duration=${S},setpts=PTS-STARTPTS`;
   if (!motionType || motionType === "none") {
     // Re-timebase to CFR after a speed change so downstream xfade/encode stay clean.
-    return `${base}${fast ? `,fps=${fps}` : ""}[v${i}]`;
+    return `${base}${changed ? `,fps=${fps}` : ""}[v${i}]`;
   }
   const FR = Math.max(2, Math.round(span * fps));
   const A = amount.toFixed(4);
@@ -161,7 +165,7 @@ function buildVideoChain(clips, paths, { width, height, fps, transitions, transi
     const span = (i < n - 1 ? clips[i].duration + tdur(i + 1) : clips[i].duration) + 2 * frame;
     if (isVideoPath(paths[i]) && !clips[i].gap) {
       const inSec = Math.max(0, (trims && +trims[i]) || 0);
-      const spd = speeds && +speeds[i] > 1 ? +speeds[i] : 1;
+      const spd = speeds && +speeds[i] > 0 ? +speeds[i] : 1;
       inputs.push("-ss", inSec.toFixed(3), "-i", paths[i]);
       parts.push(videoStream(i, width, height, fps, span, motTypes[i], motionAmount, spd));
     } else if (motTypes[i] === "none") {
@@ -200,8 +204,8 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
       const startMs = Math.round(clips[i].start * 1000);
       const lbl = `ea${i}`;
       // Speed the audio to match a fast-forwarded clip (atempo), then cut to slot.
-      const spd = speeds && +speeds[i] > 1 ? +speeds[i] : 1;
-      const at = spd > 1 ? `${atempoChain(spd)},` : "";
+      const spd = speeds && +speeds[i] > 0 ? +speeds[i] : 1;
+      const at = Math.abs(spd - 1) > 0.001 ? `${atempoChain(spd)},` : "";
       parts.push(`[${i}:a]${at}atrim=duration=${clips[i].duration.toFixed(3)},asetpts=PTS-STARTPTS,` +
         `volume=${vol.toFixed(3)},adelay=${startMs}|${startMs}[${lbl}]`);
       vAudio.push(`[${lbl}]`);
@@ -274,7 +278,7 @@ function buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capC
     audioInputs.push("-ss", ac.trim.toFixed(3), "-i", ac.path);
     const idx = ai++;
     const startMs = Math.round(ac.start * 1000);
-    const at = ac.speed > 1 ? `${atempoChain(ac.speed)},` : "";
+    const at = Math.abs(ac.speed - 1) > 0.001 ? `${atempoChain(ac.speed)},` : "";
     parts.push(`[${idx}:a]${at}atrim=duration=${ac.duration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${ac.vol.toFixed(3)},adelay=${startMs}|${startMs}[ea${ac.i}]`);
     vAudio.push(`[ea${ac.i}]`);
   }
@@ -334,7 +338,7 @@ function buildSegmentedPlan(spec, io, total) {
   for (let i = 0; i < n; i++) {
     const vol = volumes ? +volumes[i] : 0;
     if (isVideoPath(paths[i]) && !clips[i].gap && vol > 0 && (!audible || audible[i])) {
-      audioClips.push({ i, path: paths[i], trim: Math.max(0, (trims && +trims[i]) || 0), speed: speeds && +speeds[i] > 1 ? +speeds[i] : 1, vol, start: clips[i].start, duration: clips[i].duration });
+      audioClips.push({ i, path: paths[i], trim: Math.max(0, (trims && +trims[i]) || 0), speed: speeds && +speeds[i] > 0 ? +speeds[i] : 1, vol, start: clips[i].start, duration: clips[i].duration });
     }
   }
   const joinFc = "fc_join.txt";

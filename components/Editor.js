@@ -29,7 +29,7 @@ export default function Editor({
   aspect, setAspect, fps, setFps,
   renderQuality = "full", setRenderQuality, renderDims,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
-  onWebCodecsTest, wcBusy, wcProgress, wcAvailable, wcEnabled, setWcEnabled,
+  onWebCodecsTest, onWebCodecsCancel, wcBusy, wcProgress, wcAvailable, wcEnabled, setWcEnabled,
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
@@ -157,9 +157,10 @@ export default function Editor({
   const videoParams = useCallback((name, slotDur) => {
     const info = videoInfoByName[name];
     if (!info) return null;
-    const mode = fitByName[name] || "fit";
     const dur = info.duration || 0;
-    if (mode === "fit" && slotDur > 0 && dur > slotDur + 0.05) return { trimStart: 0, speed: dur / slotDur };
+    // Default by length: longer-than-slot trims (1x), shorter fills the slot ("fit").
+    const mode = fitByName[name] || (dur > slotDur ? "trim" : "fit");
+    if (mode === "fit" && slotDur > 0 && dur > 0 && Math.abs(dur - slotDur) > 0.05) return { trimStart: 0, speed: dur / slotDur };
     return { trimStart: trimByName[name] || 0, speed: 1 };
   }, [videoInfoByName, fitByName, trimByName]);
 
@@ -496,36 +497,35 @@ export default function Editor({
             </div>
           )}
 
+          {wcAvailable && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, opacity: (busy || wcBusy) ? 0.5 : 1 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast render</span>
+              <button
+                type="button"
+                className={`cap-switch ${wcEnabled ? "is-on" : ""}`}
+                onClick={() => setWcEnabled && setWcEnabled((v) => !v)}
+                disabled={busy || wcBusy}
+                aria-pressed={!!wcEnabled}
+                aria-label="Fast GPU render (WebCodecs)"
+                title="Render on the GPU via WebCodecs — faster for image-only projects (beta)"
+              >
+                <span className="cap-switch__box" />
+              </button>
+            </div>
+          )}
           {!(busy || wcBusy) ? (
-            <>
-              {wcAvailable && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast render</span>
-                  <button
-                    type="button"
-                    className={`cap-switch ${wcEnabled ? "is-on" : ""}`}
-                    onClick={() => setWcEnabled && setWcEnabled((v) => !v)}
-                    aria-pressed={!!wcEnabled}
-                    aria-label="Fast GPU render (WebCodecs)"
-                    title="Render on the GPU via WebCodecs — faster for image-only projects (beta)"
-                  >
-                    <span className="cap-switch__box" />
-                  </button>
-                </div>
-              )}
-              <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>
-            </>
+            <button className="render" onClick={(wcEnabled && wcAvailable) ? onWebCodecsTest : onRender}>Render MP4</button>
           ) : (
             <>
               <button className="render render--busy" disabled>
-                {wcBusy ? "WebCodecs render" : "Rendering"}… {Math.round((wcBusy ? wcProgress : progress) * 100)}%
+                Rendering… {Math.round((wcBusy ? wcProgress : progress) * 100)}%
               </button>
               <div className="progress"><i style={{ width: `${Math.round((wcBusy ? wcProgress : progress) * 100)}%` }} /></div>
               <div className="render-meta">
                 <span>{clock(elapsed)} elapsed</span>
                 {(wcBusy ? wcProgress : progress) > 0.03 && <span>~{clock(elapsed * (1 - (wcBusy ? wcProgress : progress)) / (wcBusy ? wcProgress : progress))} left</span>}
               </div>
-              {!wcBusy && <button className="cancel" onClick={onCancel}>Cancel</button>}
+              <button className="cancel" onClick={wcBusy ? onWebCodecsCancel : onCancel}>Cancel</button>
             </>
           )}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
@@ -764,9 +764,14 @@ export default function Editor({
         const vol = volumeByName[inspect] == null ? 0.5 : volumeByName[inspect];
         const inPt = trimByName[inspect] || 0;
         const kind = isVid ? "Video" : "Image";
-        const fitMode = fitByName[inspect] || "fit";
-        const longer = !!(vinfo.duration && insClip && vinfo.duration > insClip.duration + 0.05);
-        const speed = (longer && insClip) ? (vinfo.duration / insClip.duration) : 1;
+        const slotDur = (insClip && insClip.duration) || 0;
+        const vdur = vinfo.duration || 0;
+        const longer = !!(vdur && insClip && vdur > slotDur + 0.05);
+        const shorter = !!(vdur && insClip && vdur < slotDur - 0.05);
+        const diff = longer || shorter;
+        // Default by length: longer clip trims (1x), shorter fills the slot (fit/slow).
+        const fitMode = fitByName[inspect] || (longer ? "trim" : "fit");
+        const speed = (diff && slotDur > 0) ? (vdur / slotDur) : 1;
         return (
           <div className="modal" role="dialog" aria-modal="true" onClick={closeInspect}>
             <div className="modal__card" onClick={(e) => e.stopPropagation()}>
@@ -792,7 +797,7 @@ export default function Editor({
                     onLoadedMetadata={(e) => {
                       const v = e.currentTarget;
                       try { v.currentTime = inPt; } catch { /* ignore */ }
-                      v.playbackRate = (longer && fitMode === "fit") ? Math.min(16, speed) : 1;
+                      v.playbackRate = (diff && fitMode === "fit") ? Math.min(16, Math.max(0.0625, speed)) : 1;
                     }}
                   />
                 ) : (curUrl && <img src={curUrl} alt="" />)}
@@ -820,10 +825,10 @@ export default function Editor({
 
               {insClip && !insClip.gap && isVid && (
                 <div className="modal__vid">
-                  {longer && (
+                  {diff && (
                     <div className="modal__fit">
                       <span className="modal__motion-label">
-                        Clip is longer than its slot · {vinfo.duration.toFixed(1)}s clip, {insClip.duration.toFixed(1)}s slot
+                        {longer ? "Clip is longer than its slot" : "Clip is shorter than its slot"} · {vinfo.duration.toFixed(1)}s clip, {insClip.duration.toFixed(1)}s slot
                       </span>
                       <div className="seg">
                         <button
@@ -836,11 +841,13 @@ export default function Editor({
                         >Trim (1×)</button>
                       </div>
                       {fitMode === "fit"
-                        ? <span className="modal__hint">Whole clip fast-forwarded at {speed.toFixed(1)}× to fit the slot.</span>
-                        : <span className="modal__hint">Plays at 1× — set a start point below; the rest is cut off.</span>}
+                        ? <span className="modal__hint">{longer
+                            ? `Whole clip fast-forwarded at ${speed.toFixed(1)}× to fit the slot.`
+                            : `Whole clip slowed to ${speed.toFixed(2)}× to fill the slot.`}</span>
+                        : <span className="modal__hint">Plays at 1× — set a start point below;{longer ? " the rest is cut off." : " the last frame then holds to fill the slot."}</span>}
                     </div>
                   )}
-                  {(!longer || fitMode === "trim") && (() => {
+                  {(!diff || fitMode === "trim") && (() => {
                     const dur = vinfo.duration || 0;
                     const remain = Math.max(0, dur - inPt);        // footage left from the start point
                     const playLen = Math.min(insClip.duration, remain); // real-time footage shown

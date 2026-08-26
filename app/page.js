@@ -611,6 +611,8 @@ export default function Home() {
     setBusy(false);
     setProgress(0);
   }, []);
+  const wcCancelRef = useRef(false);
+  const onWebCodecsCancel = useCallback(() => { wcCancelRef.current = true; }, []);
 
   const onRender = useCallback(async () => {
     cancelRef.current = false;
@@ -620,20 +622,21 @@ export default function Home() {
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const motions = exportClips.map((c) => motionByName[c.name] || "none");
       // Per-clip video params (parallel to exportClips). Images get 0/1/none.
-      // "fit" (default) fast-forwards a longer-than-slot clip to fit the whole
-      // thing; "trim" keeps 1x and uses the in-point. Short clips stay 1x + freeze.
-      const trims = exportClips.map((c) => {
+      // Default depends on length: a clip LONGER than its slot trims (1x + in-point,
+      // extra cut off); a clip SHORTER slows to fill the slot ("fit"). An explicit
+      // fitByName choice overrides the default.
+      const modeOf = (c) => {
         const info = videoInfoByName[c.name];
-        if (!info) return 0;
-        return (fitByName[c.name] === "trim") ? (trimByName[c.name] || 0) : 0;
-      });
+        if (!info) return "fit";
+        return fitByName[c.name] || ((info.duration || 0) > (c.duration || 0) ? "trim" : "fit");
+      };
+      const trims = exportClips.map((c) =>
+        (videoInfoByName[c.name] && modeOf(c) === "trim") ? (trimByName[c.name] || 0) : 0);
       const speeds = exportClips.map((c) => {
         const info = videoInfoByName[c.name];
         if (!info) return 1;
-        const mode = fitByName[c.name] || "fit";
-        const dur = info.duration || 0;
-        const slot = c.duration || 0;
-        return (mode === "fit" && slot > 0 && dur > slot) ? +(dur / slot).toFixed(4) : 1;
+        const dur = info.duration || 0, slot = c.duration || 0;
+        return (modeOf(c) === "fit" && slot > 0 && dur > 0 && Math.abs(dur - slot) > 0.05) ? +(dur / slot).toFixed(4) : 1;
       });
       const volumes = exportClips.map((c) =>
         Object.prototype.hasOwnProperty.call(videosByName, c.name)
@@ -666,6 +669,7 @@ export default function Home() {
   }, []);
   const onWebCodecsTest = useCallback(async () => {
     setWcBusy(true); setWcProgress(0);
+    wcCancelRef.current = false;
     // Play inaudible audio for the duration so a backgrounded tab keeps rendering
     // at full speed (started here, inside the click gesture, so it's allowed).
     const stopKeepAwake = startKeepAwake();
@@ -673,15 +677,20 @@ export default function Home() {
       const exportClips = trimClips(clips, exportDuration);
       const transitions = exportClips.map((c) => transitionsByName[c.name] || "cut");
       const motions = exportClips.map((c) => motionByName[c.name] || "none");
-      // Per-clip video params (parallel to exportClips), same as the ffmpeg path.
+      // Per-clip video params (parallel to exportClips), same rule as the ffmpeg
+      // path: long clip → trim (1x + in-point), short clip → fit (slow to fill).
+      const modeOf = (c) => {
+        const info = videoInfoByName[c.name];
+        if (!info) return "fit";
+        return fitByName[c.name] || ((info.duration || 0) > (c.duration || 0) ? "trim" : "fit");
+      };
       const trims = exportClips.map((c) =>
-        (videoInfoByName[c.name] && fitByName[c.name] === "trim") ? (trimByName[c.name] || 0) : 0);
+        (videoInfoByName[c.name] && modeOf(c) === "trim") ? (trimByName[c.name] || 0) : 0);
       const speeds = exportClips.map((c) => {
         const info = videoInfoByName[c.name];
         if (!info) return 1;
-        const mode = fitByName[c.name] || "fit";
         const dur = info.duration || 0, slot = c.duration || 0;
-        return (mode === "fit" && slot > 0 && dur > slot) ? +(dur / slot).toFixed(4) : 1;
+        return (modeOf(c) === "fit" && slot > 0 && dur > 0 && Math.abs(dur - slot) > 0.05) ? +(dur / slot).toFixed(4) : 1;
       });
       const volumes = exportClips.map((c) =>
         Object.prototype.hasOwnProperty.call(videosByName, c.name)
@@ -696,16 +705,18 @@ export default function Home() {
         },
         imagesByName,
         setWcProgress,
+        () => wcCancelRef.current,
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = "webcodecs-test.mp4"; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      showAlert(e && e.message ? e.message : String(e), { title: "Fast render failed" });
+      if (!(e && e.cancelled)) showAlert(e && e.message ? e.message : String(e), { title: "Fast render failed" });
     } finally {
       stopKeepAwake();
       setWcBusy(false);
+      setWcProgress(0);
     }
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
       videosByName, videoInfoByName, fitByName, trimByName, volumeByName,
@@ -892,7 +903,8 @@ export default function Home() {
           duration={audioDuration} peaks={peaks} dims={dims}
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
-          onWebCodecsTest={onWebCodecsTest} wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk}
+          onWebCodecsTest={onWebCodecsTest} onWebCodecsCancel={onWebCodecsCancel}
+          wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk}
           wcEnabled={wcEnabled} setWcEnabled={setWcEnabled}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}
