@@ -272,12 +272,12 @@ export default function Editor({
 
   // Elapsed render timer.
   useEffect(() => {
-    if (!busy) { setElapsed(0); return; }
+    if (!busy && !wcBusy) { setElapsed(0); return; }
     const start = Date.now();
     setElapsed(0);
     const id = setInterval(() => setElapsed((Date.now() - start) / 1000), 250);
     return () => clearInterval(id);
-  }, [busy]);
+  }, [busy, wcBusy]);
 
   useEffect(() => {
     const a = audioRef.current;
@@ -496,32 +496,33 @@ export default function Editor({
             </div>
           )}
 
-          {!busy ? (
-            <button className="render" onClick={onRender}>Render MP4</button>
+          {!(busy || wcBusy) ? (
+            <>
+              <button className="render" onClick={onRender}>Render MP4</button>
+              {wcAvailable && (
+                <button
+                  type="button"
+                  className="render"
+                  onClick={onWebCodecsTest}
+                  title="Faster GPU render via WebCodecs — best for image-only projects"
+                  style={{ marginTop: 8, background: "#5b6cff" }}
+                >
+                  ⚡ WebCodecs render (beta)
+                </button>
+              )}
+            </>
           ) : (
             <>
               <button className="render render--busy" disabled>
-                Rendering… {Math.round(progress * 100)}%
+                {wcBusy ? "WebCodecs render" : "Rendering"}… {Math.round((wcBusy ? wcProgress : progress) * 100)}%
               </button>
-              <div className="progress"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+              <div className="progress"><i style={{ width: `${Math.round((wcBusy ? wcProgress : progress) * 100)}%` }} /></div>
               <div className="render-meta">
                 <span>{clock(elapsed)} elapsed</span>
-                {progress > 0.03 && <span>~{clock(elapsed * (1 - progress) / progress)} left</span>}
+                {(wcBusy ? wcProgress : progress) > 0.03 && <span>~{clock(elapsed * (1 - (wcBusy ? wcProgress : progress)) / (wcBusy ? wcProgress : progress))} left</span>}
               </div>
-              <button className="cancel" onClick={onCancel}>Cancel</button>
+              {!wcBusy && <button className="cancel" onClick={onCancel}>Cancel</button>}
             </>
-          )}
-          {wcAvailable && !busy && (
-            <button
-              type="button"
-              className="render"
-              onClick={onWebCodecsTest}
-              disabled={wcBusy}
-              title="Experimental: render video-only on the GPU (WebCodecs, no audio yet)"
-              style={{ marginTop: 8, background: wcBusy ? "#3a3f6b" : "#5b6cff" }}
-            >
-              {wcBusy ? `⚡ WebCodecs ${Math.round(wcProgress * 100)}%` : "⚡ WebCodecs test (beta)"}
-            </button>
           )}
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}
