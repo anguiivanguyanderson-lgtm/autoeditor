@@ -155,56 +155,70 @@ app.post("/render", newJob, oneAtATime, upload.any(), async (req, res) => {
 
     // Render with the chosen encoder; if a hardware encode fails on this machine,
     // retry once with CPU libx264 so it always produces a valid video.
-    const launch = (encoder) => {
-      const plan = buildRenderPlan(spec, { paths, audioName, capChain, encoder, audible });
-      // Write the filtergraph to disk so ffmpeg reads it from a file (avoids
-      // over-long command lines when captions add many drawtext filters).
-      for (const f of plan.filterFiles) fssync.writeFileSync(path.join(req.jobDir, f.name), f.text);
+    // A plan is one or more passes (a big graph timeline is split into segment
+    // passes + a join pass). Run them in order; aggregate progress by frame count.
+    const launch = async (encoder) => {
+      let plan;
+      try { plan = buildRenderPlan(spec, { paths, audioName, capChain, encoder, audible }); }
+      catch (e) { job.status = "error"; job.error = String(e.message || e); broadcast(job, { error: job.error }); endListeners(job); clearActive(req.jobId); return; }
+      const passes = plan.passes || [{ args: plan.args, filterFiles: plan.filterFiles, output: "output.mp4", total: plan.total }];
+      const grand = passes.reduce((s, p) => s + (p.total || 0), 0) || 1;
       job.total = plan.total;
-      const { proc, done } = runRender(req.jobDir, plan.args, plan.total, (p) => {
-        job.progress = p;
-        broadcast(job, { progress: p });
-        // Surface progress where you can see it without the browser: the Termux
-        // console (switch to Termux to watch it).
-        const pct = Math.floor(p * 100);
-        if (pct >= job._loggedPct + 5) { job._loggedPct = pct; console.log(`Rendering… ${pct}%`); }
-      }, { threads: RENDER_THREADS, nice: RENDER_NICE });
-      job.proc = proc;
-
-      done.then((outPath) => {
-        job.status = "done"; job.progress = 1;
-        // Auto-save to a real folder (mobile: survives closing the browser).
-        let saved = null;
-        if (OUTPUT_DIR) {
-          try {
-            fssync.mkdirSync(OUTPUT_DIR, { recursive: true });
-            const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-            saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}-${req.jobId.slice(0, 6)}.mp4`);
-            fssync.copyFileSync(outPath, saved);
-            console.log("Saved video to " + saved);
-          } catch (e) { console.warn("Could not save to OUTPUT_DIR: " + e.message); saved = null; }
+      let base = 0; // frames finished in prior passes
+      try {
+        for (const pass of passes) {
+          // Write this pass's filtergraph(s) to disk (read via -filter_complex_script,
+          // avoiding over-long command lines when captions add many drawtext filters).
+          for (const f of pass.filterFiles) fssync.writeFileSync(path.join(req.jobDir, f.name), f.text);
+          const passTotal = pass.total || 0;
+          const { proc, done } = runRender(req.jobDir, pass.args, passTotal, (p) => {
+            const overall = (base + p * passTotal) / grand;
+            job.progress = overall;
+            broadcast(job, { progress: overall });
+            const pct = Math.floor(overall * 100);
+            if (pct >= job._loggedPct + 5) { job._loggedPct = pct; console.log(`Rendering… ${pct}%`); }
+          }, { threads: RENDER_THREADS, nice: RENDER_NICE, output: pass.output });
+          job.proc = proc;
+          await done;
+          if (job.status === "cancelled") return;
+          base += passTotal;
         }
-        job.outPath = saved || outPath; // serve the saved copy if we made one
-        job.saved = saved;
-        broadcast(job, { progress: 1 });
-        broadcast(job, { done: true, saved });
-        endListeners(job);
-        clearActive(req.jobId);
-      }).catch((err) => {
+      } catch (err) {
         if (job.status === "cancelled") return;
         if (encoder !== "libx264") {
           console.warn(`Encoder ${encoder} failed — falling back to libx264. ${String(err.message || err).split("\n")[0]}`);
-          job.progress = 0;
+          job.progress = 0; job._loggedPct = -5;
           broadcast(job, { progress: 0 });
-          launch("libx264");
-          return;
+          return launch("libx264");
         }
         job.status = "error"; job.error = String(err.message || err);
         console.error("Render failed: " + job.error.split("\n")[0]);
         broadcast(job, { error: job.error });
         endListeners(job);
         clearActive(req.jobId);
-      });
+        return;
+      }
+
+      // All passes succeeded — the last one produced output.mp4.
+      const outPath = path.join(req.jobDir, "output.mp4");
+      job.status = "done"; job.progress = 1;
+      // Auto-save to a real folder (mobile: survives closing the browser).
+      let saved = null;
+      if (OUTPUT_DIR) {
+        try {
+          fssync.mkdirSync(OUTPUT_DIR, { recursive: true });
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+          saved = path.join(OUTPUT_DIR, `autoeditor-${stamp}-${req.jobId.slice(0, 6)}.mp4`);
+          fssync.copyFileSync(outPath, saved);
+          console.log("Saved video to " + saved);
+        } catch (e) { console.warn("Could not save to OUTPUT_DIR: " + e.message); saved = null; }
+      }
+      job.outPath = saved || outPath; // serve the saved copy if we made one
+      job.saved = saved;
+      broadcast(job, { progress: 1 });
+      broadcast(job, { done: true, saved });
+      endListeners(job);
+      clearActive(req.jobId);
     };
     launch(ENCODER);
 

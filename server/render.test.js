@@ -121,3 +121,52 @@ describe("buildRenderPlan", () => {
     expect(p.args.join(" ")).not.toContain("drawtext");
   });
 });
+
+describe("segmented render (large graph timelines)", () => {
+  const N = 130, D = 2, TD = 0.4;
+  const many = Array.from({ length: N }, (_, k) => ({ name: "c" + k, start: +(k * (D - TD)).toFixed(3), duration: D, gap: false }));
+  const paths = Array.from({ length: N }, (_, k) => "img" + k + ".png");
+  const trans = many.map((_, k) => (k === 0 ? "cut" : "fade"));
+  const io2 = { paths, audioName: "audio.mp3", capChain: "" };
+
+  it("splits a big graph timeline into segment passes + one join pass", () => {
+    const p = buildRenderPlan({ ...base, clips: many, transitions: trans, transitionDuration: TD }, io2);
+    expect(p.mode).toBe("segmented");
+    expect(p.passes.length).toBe(4); // 130/60 = 3 segments + join
+    expect(p.passes.slice(0, 3).map((x) => x.output)).toEqual(["seg0.mp4", "seg1.mp4", "seg2.mp4"]);
+    expect(p.passes[3].output).toBe("output.mp4");
+    expect(p.total).toBeCloseTo(many[N - 1].start + D, 3);
+  });
+
+  it("renders each segment video-only at near-lossless quality, keeping its internal transitions", () => {
+    const p = buildRenderPlan({ ...base, clips: many, transitions: trans, transitionDuration: TD }, io2);
+    const seg = p.passes[0];
+    expect(seg.args).toContain("-an");
+    expect(seg.args.join(" ")).toContain("-crf 12"); // libx264 near-lossless intermediate
+    expect(seg.filterFiles[0].name).toBe("fc_s0.txt");
+    expect(seg.filterFiles[0].text).toContain("xfade=transition=fade");
+  });
+
+  it("join xfades the segments at the boundary transition (seamless) + adds captions and audio", () => {
+    const p = buildRenderPlan(
+      { ...base, clips: many, transitions: trans, transitionDuration: TD },
+      { ...io2, capChain: "drawtext=fontfile=caption.ttf:textfile=cap0.txt" }
+    );
+    const join = p.passes[3];
+    const fc = join.filterFiles[0].text;
+    // segment 0 (clips 0..59) is 96.4s; boundary xfade offset = 96.4 - 0.4 = 96.0
+    expect(fc).toContain("xfade=transition=fade");
+    expect(fc).toContain("offset=96.000");
+    expect(fc).toContain("offset=192.000"); // second boundary
+    expect(fc).toContain("drawtext=fontfile=caption.ttf");
+    expect(join.args.join(" ")).toContain("-i audio.mp3");
+    expect(join.args).toContain("output.mp4");
+  });
+
+  it("stays single-pass below the segment threshold", () => {
+    const few = many.slice(0, 10);
+    const p = buildRenderPlan({ ...base, clips: few, transitions: trans.slice(0, 10), transitionDuration: TD }, { ...io2, paths: paths.slice(0, 10) });
+    expect(p.mode).toBe("graph");
+    expect(p.passes).toBeUndefined();
+  });
+});

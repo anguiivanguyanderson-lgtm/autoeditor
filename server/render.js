@@ -140,21 +140,26 @@ function concatArgs({ audioName, width, height, fps, fadeIn, fadeOut, total, cap
   return args;
 }
 
-function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, trims, volumes, speeds, audible, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
+// The transition duration before clip k (a "cut"/none is a single-frame instant).
+function transitionDur(transitions, transitionDuration, k, frame) {
+  return (!transitions || !transitions[k] || transitions[k] === "cut")
+    ? frame : Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, transitionDuration));
+}
+// Build the per-clip video inputs + filtergraph (scale/zoompan per clip, then the
+// xfade chain) for a list of clips whose `.start` is relative to THIS chain's t=0.
+// Returns { inputs, parts, last } — `last` is the composited video label. Shared by
+// the single-pass render and by each segment of a segmented render.
+function buildVideoChain(clips, paths, { width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, trims, speeds }) {
   const n = clips.length;
   const frame = 1 / fps;
-  const clampT = (d) => Math.min(MAX_TRANSITION_DURATION, Math.max(MIN_TRANSITION_DURATION, d));
-  const tdur = (k) => (!transitions || !transitions[k] || transitions[k] === "cut" ? frame : clampT(transitionDuration));
+  const tdur = (k) => transitionDur(transitions, transitionDuration, k, frame);
   const tname = (k) => xfadeName(transitions && transitions[k]);
-  // Per-clip Ken Burns zoom (gaps never zoom).
   const motTypes = clips.map((c, i) => (c.gap ? "none" : (motions && motions[i]) || "none"));
-
   const inputs = [];
   const parts = [];
   for (let i = 0; i < n; i++) {
     const span = (i < n - 1 ? clips[i].duration + tdur(i + 1) : clips[i].duration) + 2 * frame;
     if (isVideoPath(paths[i]) && !clips[i].gap) {
-      // Video: -ss seeks to the trim in-point; videoStream fits it to the slot.
       const inSec = Math.max(0, (trims && +trims[i]) || 0);
       const spd = speeds && +speeds[i] > 1 ? +speeds[i] : 1;
       inputs.push("-ss", inSec.toFixed(3), "-i", paths[i]);
@@ -163,7 +168,6 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
       inputs.push("-loop", "1", "-t", span.toFixed(3), "-i", paths[i]);
       parts.push(stillStream(i, width, height, fps));
     } else {
-      // Single frame in; zoompan generates the animation (see zoomStream).
       inputs.push("-i", paths[i]);
       parts.push(zoomStream(i, width, height, fps, motTypes[i], motionAmount, Math.round(span * fps)));
     }
@@ -174,6 +178,13 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
     parts.push(`[${last}][v${k}]xfade=transition=${tname(k)}:duration=${tdur(k).toFixed(3)}:offset=${clips[k].start.toFixed(3)}[${out}]`);
     last = out;
   }
+  return { inputs, parts, last };
+}
+
+function graphArgs({ clips, paths, audioName, width, height, fps, transitions, transitionDuration, motions, motionAmount = 0.08, trims, volumes, speeds, audible, fadeIn, fadeOut, total, capChain, encoder }, filterFiles) {
+  const n = clips.length;
+  const { inputs, parts, last: vEnd } = buildVideoChain(clips, paths, { width, height, fps, transitions, transitionDuration, motions, motionAmount, trims, speeds });
+  let last = vEnd;
   if (capChain) { parts.push(`[${last}]${capChain}[vcap]`); last = "vcap"; }
   const vf = fadeVideo(fadeIn, fadeOut, total);
   if (vf.length) { parts.push(`[${last}]${vf.join(",")}[vf]`); last = "vf"; }
@@ -220,6 +231,118 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
 
 // Pure: build the ffmpeg argument array for a render, plus `filterFiles` — the
 // filtergraph text to write into the job dir (referenced via -filter_script).
+// Graph-path renders open every clip as a simultaneous input, so a huge timeline
+// exhausts the OS (file descriptors / memory) mid-filtergraph — notably on macOS
+// (default 256 fds). Above this many clips we render in segments and stitch them.
+const SEGMENT_MAX = Math.max(10, parseInt(process.env.RENDER_SEGMENT_MAX || "60", 10) || 60);
+
+// Near-lossless intermediate settings per encoder (segments are re-encoded once in
+// the join, so we keep them visually lossless while staying on the same silicon).
+function intermediateCodecArgs(encoder) {
+  switch (encoder) {
+    case "h264_qsv":   return ["-c:v", "h264_qsv", "-global_quality", "15", "-pix_fmt", "yuv420p"];
+    case "h264_nvenc": return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "constqp", "-qp", "15", "-pix_fmt", "yuv420p"];
+    case "h264_amf":   return ["-c:v", "h264_amf", "-rc", "cqp", "-qp_i", "15", "-qp_p", "15", "-pix_fmt", "yuv420p"];
+    case "h264_mediacodec": return ["-c:v", "h264_mediacodec", "-b:v", "40M"]; // negotiates its own pix_fmt
+    default:           return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-pix_fmt", "yuv420p"];
+  }
+}
+
+// Final pass: xfade the segment videos together at their boundary transitions
+// (reproducing the crossfade seamlessly), then apply captions, fades and audio.
+// audioClips = audible video clips (re-opened here for their sound). Returns { args, text }.
+function buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capChain, audioName, audioClips, fadeIn, fadeOut, total, encoder }, joinFc) {
+  const S = segFiles.length;
+  const parts = [];
+  for (let j = 0; j < S; j++) parts.push(`[${j}:v]fps=${fps},format=yuv420p,setsar=1[s${j}]`);
+  let last = "s0", off = 0;
+  for (let j = 1; j < S; j++) {
+    const bt = boundaries[j - 1];
+    off += segDurs[j - 1] - bt.d;
+    const out = j === S - 1 ? "vjoin" : `jx${j}`;
+    parts.push(`[${last}][s${j}]xfade=transition=${bt.name}:duration=${bt.d.toFixed(3)}:offset=${off.toFixed(3)}[${out}]`);
+    last = out;
+  }
+  if (capChain) { parts.push(`[${last}]${capChain}[vcap]`); last = "vcap"; }
+  const vf = fadeVideo(fadeIn, fadeOut, total);
+  if (vf.length) { parts.push(`[${last}]${vf.join(",")}[vf]`); last = "vf"; }
+  // Audio: voiceover is input S; audible video clips follow (re-opened for sound).
+  const voice = S;
+  const audioInputs = [], vAudio = [];
+  let ai = S + 1;
+  for (const ac of audioClips) {
+    audioInputs.push("-ss", ac.trim.toFixed(3), "-i", ac.path);
+    const idx = ai++;
+    const startMs = Math.round(ac.start * 1000);
+    const at = ac.speed > 1 ? `${atempoChain(ac.speed)},` : "";
+    parts.push(`[${idx}:a]${at}atrim=duration=${ac.duration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${ac.vol.toFixed(3)},adelay=${startMs}|${startMs}[ea${ac.i}]`);
+    vAudio.push(`[ea${ac.i}]`);
+  }
+  const af = fadeAudio(fadeIn, fadeOut, total);
+  let amap;
+  if (vAudio.length) {
+    parts.push(`[${voice}:a]${vAudio.join("")}amix=inputs=${vAudio.length + 1}:normalize=0:dropout_transition=0[amx]`);
+    if (af.length) { parts.push(`[amx]${af.join(",")}[aout]`); amap = "[aout]"; } else amap = "[amx]";
+  } else {
+    amap = `${voice}:a`;
+    if (af.length) { parts.push(`[${voice}:a]${af.join(",")}[aout]`); amap = "[aout]"; }
+  }
+  const inputArgs = [];
+  for (const f of segFiles) inputArgs.push("-i", f);
+  inputArgs.push("-i", audioName, ...audioInputs);
+  const args = [
+    ...inputArgs,
+    "-filter_complex_script", joinFc,
+    "-map", `[${last}]`, "-map", amap,
+    "-t", total.toFixed(3),
+    ...videoCodecArgs(encoder),
+    "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart", "output.mp4",
+  ];
+  return { args, text: parts.join(";") };
+}
+
+// A multi-pass plan: render clips in chunks of SEGMENT_MAX to near-lossless
+// intermediates, then a small join pass xfades them + adds captions/audio.
+function buildSegmentedPlan(spec, io, total) {
+  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, trims, volumes, speeds, fadeIn = 0, fadeOut = 0 } = spec;
+  const { paths, audioName, capChain = "", encoder = "libx264", audible } = io;
+  const n = clips.length;
+  const frame = 1 / fps;
+  const tdur = (k) => transitionDur(transitions, transitionDuration, k, frame);
+  const chunks = [];
+  for (let lo = 0; lo < n; lo += SEGMENT_MAX) chunks.push([lo, Math.min(lo + SEGMENT_MAX - 1, n - 1)]);
+
+  const passes = [], segFiles = [], segDurs = [], boundaries = [];
+  chunks.forEach(([lo, hi], s) => {
+    // Rebase this chunk's clip starts to t=0 and compute its exact duration.
+    let start = 0; const segClips = [];
+    for (let i = lo; i <= hi; i++) { segClips.push({ ...clips[i], start }); start += clips[i].duration - (i < hi ? tdur(i + 1) : 0); }
+    const segDur = start;
+    const slice = (a) => (Array.isArray(a) ? a.slice(lo, hi + 1) : a);
+    const { inputs, parts, last } = buildVideoChain(segClips, slice(paths), {
+      width, height, fps, transitions: slice(transitions), transitionDuration, motions: slice(motions), motionAmount, trims: slice(trims), speeds: slice(speeds),
+    });
+    const fc = `fc_s${s}.txt`, out = `seg${s}.mp4`;
+    const args = [...inputs, "-filter_complex_script", fc, "-map", `[${last}]`, "-an", ...intermediateCodecArgs(encoder), "-t", segDur.toFixed(3), out];
+    passes.push({ name: `segment ${s + 1}/${chunks.length}`, args, filterFiles: [{ name: fc, text: parts.join(";") }], output: out, total: Math.round(segDur * fps) });
+    segFiles.push(out); segDurs.push(segDur);
+    if (s > 0) boundaries.push({ name: xfadeName(transitions && transitions[lo]), d: tdur(lo) });
+  });
+
+  const audioClips = [];
+  for (let i = 0; i < n; i++) {
+    const vol = volumes ? +volumes[i] : 0;
+    if (isVideoPath(paths[i]) && !clips[i].gap && vol > 0 && (!audible || audible[i])) {
+      audioClips.push({ i, path: paths[i], trim: Math.max(0, (trims && +trims[i]) || 0), speed: speeds && +speeds[i] > 1 ? +speeds[i] : 1, vol, start: clips[i].start, duration: clips[i].duration });
+    }
+  }
+  const joinFc = "fc_join.txt";
+  const { args, text } = buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capChain, audioName, audioClips, fadeIn, fadeOut, total, encoder }, joinFc);
+  passes.push({ name: "join", args, filterFiles: [{ name: joinFc, text }], output: "output.mp4", total: Math.round(total * fps) });
+  return { mode: "segmented", total, passes };
+}
+
 // spec: { clips, width, height, fps, transitions, transitionDuration, fadeIn, fadeOut }
 // io:   { paths: string[] (per-clip basenames), audioName, capChain, encoder }
 export function buildRenderPlan(spec, io) {
@@ -235,6 +358,8 @@ export function buildRenderPlan(spec, io) {
   const hasVideo = Array.isArray(paths) &&
     paths.some((p, i) => isVideoPath(p) && clips[i] && !clips[i].gap);
   const useGraph = hasTransition || hasMotion || hasVideo;
+  // Big graph timelines are split into segments + a join to dodge the OS limits.
+  if (useGraph && clips.length > SEGMENT_MAX) return buildSegmentedPlan(spec, io, total);
   const common = { clips, paths, audioName, width, height, fps, fadeIn, fadeOut, total, capChain, encoder };
   const filterFiles = [];
   const args = useGraph
@@ -358,11 +483,12 @@ function parseProgress(chunk, total) {
 // and overheat); opts.nice runs it at low OS priority (so the phone stays
 // responsive — foreground apps get CPU first). Both are best-effort.
 export function runRender(dir, args, total, onProgress, opts = {}) {
+  const output = opts.output || "output.mp4";
   const threads = opts.threads > 0 ? opts.threads : 0;
   let a = [...args];
   if (threads) {
     // Encoder threads: insert before the output filename (an output option).
-    const oi = a.lastIndexOf("output.mp4");
+    const oi = a.lastIndexOf(output);
     if (oi >= 0) a.splice(oi, 0, "-threads", String(threads));
     // Filter threads: global options.
     a = ["-filter_complex_threads", String(threads), "-filter_threads", String(threads), ...a];
@@ -383,7 +509,7 @@ export function runRender(dir, args, total, onProgress, opts = {}) {
   const done = new Promise((resolve, reject) => {
     proc.on("error", reject);
     proc.on("close", (code) => {
-      if (code === 0) resolve(path.join(dir, "output.mp4"));
+      if (code === 0) resolve(path.join(dir, output));
       else reject(new Error(`ffmpeg exited ${code}\n${stderr.slice(-2000)}`));
     });
   });
