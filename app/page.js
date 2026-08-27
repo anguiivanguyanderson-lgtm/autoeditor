@@ -7,7 +7,7 @@ import { resolveDimensions, capTo720 } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo, cancelRender, getActiveRender, reconnectRender, probeBackend } from "../lib/serverRender";
-import { renderWebCodecs, webCodecsCanEncodeH264, startKeepAwake } from "../lib/webcodecsRender";
+import { renderWebCodecs, webCodecsCanRender, pickRenderProfile, startKeepAwake } from "../lib/webcodecsRender";
 import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
@@ -699,15 +699,31 @@ export default function Home() {
   const [wcOk, setWcOk] = useState(false);
   const [serverAvailable, setServerAvailable] = useState(false); // ffmpeg backend reachable?
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
+  const [wcProfile, setWcProfile] = useState(null); // resolved render format (mp4/webm)
   useEffect(() => {
-    webCodecsCanEncodeH264().then(setWcOk).catch(() => setWcOk(false));
+    webCodecsCanRender().then(setWcOk).catch(() => setWcOk(false));
     probeBackend().then(setServerAvailable).catch(() => setServerAvailable(false));
   }, []);
+  // Resolve the output profile up front (recomputed when size/fps change) so the
+  // Save dialog and filename use the right extension without an await after click.
+  useEffect(() => {
+    let alive = true;
+    if (!wcOk) { setWcProfile(null); return; }
+    pickRenderProfile(renderDims.width, renderDims.height, fps, 8_000_000)
+      .then((p) => { if (alive) setWcProfile(p); }).catch(() => { if (alive) setWcProfile(null); });
+    return () => { alive = false; };
+  }, [wcOk, renderDims.width, renderDims.height, fps]);
   const onWebCodecsTest = useCallback(async () => {
     wcCancelRef.current = false;
     const logs = []; // diagnostics — shown in the failure dialog
-    const fileName = `${((currentProject && currentProject.name) || "autoeditor").replace(/[^\w.-]+/g, "_") || "autoeditor"}.mp4`;
-    // A long video's MP4 is too big for one in-memory buffer, so stream it straight
+    const profile = wcProfile;
+    if (!profile) {
+      showAlert("This browser can't encode video. Use Chrome, Edge, or Safari 16.4+.", { title: "Fast render unavailable" });
+      return;
+    }
+    const ext = profile.container === "webm" ? "webm" : "mp4";
+    const fileName = `${((currentProject && currentProject.name) || "autoeditor").replace(/[^\w.-]+/g, "_") || "autoeditor"}.${ext}`;
+    // A long video's file is too big for one in-memory buffer, so stream it straight
     // to a file the user picks (Chromium desktop). Prompt inside the click gesture,
     // before any await, so the picker is allowed.
     let writable = null;
@@ -716,7 +732,7 @@ export default function Home() {
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName: fileName,
-          types: [{ description: "MP4 video", accept: { "video/mp4": [".mp4"] } }],
+          types: [{ description: ext === "webm" ? "WebM video" : "MP4 video", accept: { [`video/${ext}`]: [`.${ext}`] } }],
         });
         writable = await handle.createWritable();
       } catch (e) {
@@ -759,7 +775,7 @@ export default function Home() {
         : Math.max(2_000_000, Math.min(8_000_000, Math.floor((memCap * 8) / Math.max(1, exportDuration || 1))));
       const blob = await renderWebCodecs(
         {
-          clips: exportClips, width: renderDims.width, height: renderDims.height, fps, bitrate,
+          clips: exportClips, width: renderDims.width, height: renderDims.height, fps, bitrate, profile,
           transitions, transitionDuration, motions, motionAmount, audioFile,
           videosByName, trims, speeds, volumes,
           cues: captionsOn && captionCues.length ? captionCues : null,
@@ -804,7 +820,7 @@ export default function Home() {
       setWcPhase("Rendering");
     }
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
-      videosByName, videoInfoByName, fitByName, trimByName, volumeByName, currentProject, flashDone,
+      videosByName, videoInfoByName, fitByName, trimByName, volumeByName, currentProject, flashDone, wcProfile,
       captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
   if (view === "list") {
