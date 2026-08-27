@@ -438,8 +438,11 @@ export default function Home() {
   }, []);
 
   const resetAllState = useCallback(() => {
+    // Touch devices default to lighter 720p / 24fps (less CPU/RAM) for new projects.
+    let coarse = false;
+    try { coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch (_) {}
     setAudioFile(null); setAudioUrl(null); setAudioDuration(0); setPeaks([]);
-    setAspect("16:9"); setFps(30); setRenderQuality("full");
+    setAspect("16:9"); setFps(coarse ? 24 : 30); setRenderQuality(coarse ? "720p" : "full");
     setTransitionDuration(DEFAULT_TRANSITION_DURATION); setFadeIn(0.5); setFadeOut(0.6);
     setMotionByName({}); setMotionAmount(0.08); setTrimByName({}); setVolumeByName({}); setFitByName({});
     setTrimEnd(0);
@@ -678,9 +681,27 @@ export default function Home() {
     probeBackend().then(setServerAvailable).catch(() => setServerAvailable(false));
   }, []);
   const onWebCodecsTest = useCallback(async () => {
-    setWcBusy(true); setWcProgress(0); setWcPhase("Rendering");
     wcCancelRef.current = false;
     const logs = []; // diagnostics — shown in the failure dialog
+    const fileName = `${((currentProject && currentProject.name) || "autoeditor").replace(/[^\w.-]+/g, "_") || "autoeditor"}.mp4`;
+    // A long video's MP4 is too big for one in-memory buffer, so stream it straight
+    // to a file the user picks (Chromium desktop). Prompt inside the click gesture,
+    // before any await, so the picker is allowed.
+    let writable = null;
+    const estBytes = (8_000_000 / 8) * (exportDuration || 0);
+    if (estBytes > 1_000_000_000 && typeof window !== "undefined" && typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: "MP4 video", accept: { "video/mp4": [".mp4"] } }],
+        });
+        writable = await handle.createWritable();
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // user cancelled the save dialog
+        writable = null; // picker unavailable/failed — fall back to in-memory
+      }
+    }
+    setWcBusy(true); setWcProgress(0); setWcPhase("Rendering");
     // Play inaudible audio for the duration so a backgrounded tab keeps rendering
     // at full speed (started here, inside the click gesture, so it's allowed).
     const stopKeepAwake = startKeepAwake();
@@ -706,9 +727,16 @@ export default function Home() {
       const volumes = exportClips.map((c) =>
         Object.prototype.hasOwnProperty.call(videosByName, c.name)
           ? (volumeByName[c.name] == null ? 0.5 : volumeByName[c.name]) : 0);
+      // Streaming to disk has no size limit → full 8 Mbps. In-memory (Safari, iOS,
+      // Firefox, mobile) must fit the whole MP4 in one buffer, so scale the bitrate
+      // down for long videos to stay under a memory-safe cap.
+      const memCap = (typeof navigator !== "undefined" && navigator.deviceMemory && navigator.deviceMemory <= 4) ? 550e6 : 1_150e6;
+      const bitrate = writable
+        ? 8_000_000
+        : Math.max(2_000_000, Math.min(8_000_000, Math.floor((memCap * 8) / Math.max(1, exportDuration || 1))));
       const blob = await renderWebCodecs(
         {
-          clips: exportClips, width: renderDims.width, height: renderDims.height, fps,
+          clips: exportClips, width: renderDims.width, height: renderDims.height, fps, bitrate,
           transitions, transitionDuration, motions, motionAmount, audioFile,
           videosByName, trims, speeds, volumes,
           cues: captionsOn && captionCues.length ? captionCues : null,
@@ -718,12 +746,16 @@ export default function Home() {
         (frac, phase) => { setWcProgress(frac); if (phase) setWcPhase(phase); },
         () => wcCancelRef.current,
         logs,
+        writable,
       );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = "webcodecs-test.mp4"; a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (blob) { // in-memory result → download; a streamed render is already on disk
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = fileName; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
     } catch (e) {
+      if (writable) { try { await writable.abort(); } catch (_) {} } // discard partial file
       if (!(e && e.cancelled)) {
         const details = [
           `Error: ${e && e.message ? e.message : String(e)}`,
@@ -746,7 +778,7 @@ export default function Home() {
       setWcPhase("Rendering");
     }
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
-      videosByName, videoInfoByName, fitByName, trimByName, volumeByName,
+      videosByName, videoInfoByName, fitByName, trimByName, volumeByName, currentProject,
       captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
   if (view === "list") {
