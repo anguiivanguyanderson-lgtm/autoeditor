@@ -673,6 +673,13 @@ export default function Home() {
   const [wcBusy, setWcBusy] = useState(false);
   const [wcProgress, setWcProgress] = useState(0);
   const [wcPhase, setWcPhase] = useState("Rendering");
+  const [doneMsg, setDoneMsg] = useState(null);       // transient "render complete" toast
+  const doneTimerRef = useRef(0);
+  const flashDone = useCallback((msg) => {
+    setDoneMsg(msg);
+    clearTimeout(doneTimerRef.current);
+    doneTimerRef.current = setTimeout(() => setDoneMsg(null), 6000);
+  }, []);
   const [wcOk, setWcOk] = useState(false);
   const [serverAvailable, setServerAvailable] = useState(false); // ffmpeg backend reachable?
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
@@ -753,6 +760,9 @@ export default function Home() {
         const a = document.createElement("a");
         a.href = url; a.download = fileName; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
+        flashDone(`Downloaded “${fileName}”`);
+      } else { // streamed straight to the file the user chose — no browser download
+        flashDone(`Saved to “${fileName}”`);
       }
     } catch (e) {
       if (writable) { try { await writable.abort(); } catch (_) {} } // discard partial file
@@ -778,7 +788,7 @@ export default function Home() {
       setWcPhase("Rendering");
     }
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
-      videosByName, videoInfoByName, fitByName, trimByName, volumeByName, currentProject,
+      videosByName, videoInfoByName, fitByName, trimByName, volumeByName, currentProject, flashDone,
       captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
 
   if (view === "list") {
@@ -801,6 +811,12 @@ export default function Home() {
     <>
     <DialogHost />
     <main className="app">
+      {doneMsg && (
+        <div className="donetoast" role="status" aria-live="polite" onClick={() => setDoneMsg(null)}>
+          <span className="donetoast__ok" aria-hidden="true">✓</span>
+          <span>Render complete — {doneMsg}</span>
+        </div>
+      )}
       <header className="nav">
         <div className="nav__brand">
           <img className="brand__logo" src="/logo.svg" alt="" width="28" height="28" />

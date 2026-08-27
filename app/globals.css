@@ -1038,3 +1038,18 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
   font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; color: var(--text);
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* Transient "render complete" toast. */
+.donetoast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  z-index: 60; display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 11px 18px; border-radius: 999px; max-width: calc(100vw - 24px);
+  background: rgba(23, 23, 26, 0.97); border: 1px solid var(--green);
+  color: var(--text); font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5); animation: dlg-fade .18s ease;
+}
+.donetoast__ok {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12px; font-weight: 800;
+  background: var(--green); color: #12211b;
+}
