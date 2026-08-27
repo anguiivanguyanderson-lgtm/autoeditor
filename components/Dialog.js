@@ -25,13 +25,19 @@ export function DialogHost() {
   const [value, setValue] = useState("");
   const inputRef = useRef(null);
 
+  const [copied, setCopied] = useState(false);
   useEffect(() => { emit = setState; return () => { emit = null; }; }, []);
   useEffect(() => {
     if (!state) return;
+    setCopied(false);
     if (state.type === "prompt") setValue(state.defaultValue || "");
     const t = setTimeout(() => { if (inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, 0);
     return () => clearTimeout(t);
   }, [state]);
+  const copyDetails = async () => {
+    try { await navigator.clipboard.writeText(state.details || ""); setCopied(true); setTimeout(() => setCopied(false), 1600); }
+    catch (_) { /* clipboard blocked — the text is still selectable in the box */ }
+  };
 
   if (!state) return null;
 
@@ -51,6 +57,15 @@ export function DialogHost() {
       >
         {state.title && <div className="dlg__title">{state.title}</div>}
         {state.message && <div className="dlg__msg">{state.message}</div>}
+        {state.details && (
+          <div className="dlg__logs">
+            <div className="dlg__logs-head">
+              <span>Details</span>
+              <button type="button" className="dlg__logs-copy" onClick={copyDetails}>{copied ? "Copied ✓" : "Copy"}</button>
+            </div>
+            <pre className="dlg__logs-pre">{state.details}</pre>
+          </div>
+        )}
         {state.type === "prompt" && (
           <input
             ref={inputRef} className="dlg__input" value={value}

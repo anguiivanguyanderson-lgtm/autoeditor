@@ -29,7 +29,7 @@ export default function Editor({
   aspect, setAspect, fps, setFps,
   renderQuality = "full", setRenderQuality, renderDims,
   onRender, onCancel, busy, progress, outUrl, error, warnings,
-  onWebCodecsTest, onWebCodecsCancel, wcBusy, wcProgress, wcAvailable, serverAvailable, wcEnabled, setWcEnabled,
+  onWebCodecsTest, onWebCodecsCancel, wcBusy, wcProgress, wcPhase, wcAvailable, serverAvailable, wcEnabled, setWcEnabled,
   replaceImage, removeImage, fillGap, resizeBoundary,
   transitionsByName, transitionDuration, setTransition, applyTransitionAll, applyTransitionMix, setTransitionDuration,
   fadeIn, setFadeIn, fadeOut, setFadeOut,
@@ -527,7 +527,7 @@ export default function Editor({
           ) : (
             <>
               <button className="render render--busy" disabled>
-                Rendering… {Math.round((wcBusy ? wcProgress : progress) * 100)}%
+                {wcBusy ? (wcPhase || "Rendering") : "Rendering"}… {Math.round((wcBusy ? wcProgress : progress) * 100)}%
               </button>
               <div className="progress"><i style={{ width: `${Math.round((wcBusy ? wcProgress : progress) * 100)}%` }} /></div>
               <div className="render-meta">

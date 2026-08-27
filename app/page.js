@@ -494,7 +494,7 @@ export default function Home() {
 
   const saveCurrent = useCallback(async () => {
     const proj = currentProject;
-    if (!proj) return;
+    if (!proj || loadingProject) return; // never save a half-loaded project
     try {
       const rec = {
         id: proj.id, name: proj.name, createdAt: proj.createdAt || Date.now(),
@@ -508,15 +508,15 @@ export default function Home() {
       await syncMedia(proj.id, wanted);
       try { setStorage(await storageEstimate()); } catch (_) {}
     } catch (_) { /* storage full or unavailable — keep editing */ }
-  }, [currentProject, makeThumb, exportDuration, clips.length, buildProjectData, audioFile, slots]);
+  }, [currentProject, loadingProject, makeThumb, exportDuration, clips.length, buildProjectData, audioFile, slots]);
   saveRef.current = saveCurrent;
 
   // Debounced autosave whenever the composition changes.
   useEffect(() => {
-    if (view !== "editor" || !currentProject) return;
+    if (view !== "editor" || !currentProject || loadingProject) return;
     const t = setTimeout(() => { if (saveRef.current) saveRef.current(); }, 1200);
     return () => clearTimeout(t);
-  }, [view, currentProject, slots, transitionsByName, aspect, fps, renderQuality, transitionDuration,
+  }, [view, currentProject, loadingProject, slots, transitionsByName, aspect, fps, renderQuality, transitionDuration,
       fadeIn, fadeOut, motionByName, motionAmount, trimByName, volumeByName, fitByName, trimEnd,
       captionRaw, captionName, captionsOn, captionStyle, captionSize, captionLineHeight, captionFontScale,
       audioFile, built]);
@@ -524,28 +524,38 @@ export default function Home() {
   const openProject = useCallback(async (id) => {
     const rec = await getProject(id);
     if (!rec) return;
+    const d = rec.data || {};
+    // Open the editor shell right away with a loader; media loads in the background.
+    // (loadingProject guards autosave so this cleared state is never saved back.)
+    resetAllState();
+    setCurrentProject({ id: rec.id, name: rec.name, createdAt: rec.createdAt });
     setLoadingProject(true);
+    setView("editor");
     try {
-      const d = rec.data || {};
-      // Audio
-      if (d.audioName) {
+      // Decode the audio and ALL slot media in parallel — 100+ images loading
+      // one-by-one is what made opening slow.
+      const audioP = (async () => {
+        if (!d.audioName) return null;
         const blob = await getMedia(id, "audio");
-        if (blob) {
-          const file = new File([blob], d.audioName, { type: blob.type || "audio/mpeg" });
-          setAudioFile(file); setAudioUrl(URL.createObjectURL(file));
-          try { setAudioDuration(await getAudioDuration(file)); } catch (_) {}
-          getWaveformPeaks(file).then(setPeaks).catch(() => {});
-        } else { setAudioFile(null); setAudioUrl(null); setAudioDuration(0); setPeaks([]); }
-      } else { setAudioFile(null); setAudioUrl(null); setAudioDuration(0); setPeaks([]); }
-      // Slots (rebuild images/videos from stored blobs)
-      const newSlots = [];
-      for (const sm of (d.slots || [])) {
-        if (sm.empty) { newSlots.push({ id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true }); continue; }
+        if (!blob) return null;
+        const file = new File([blob], d.audioName, { type: blob.type || "audio/mpeg" });
+        let dur = 0; try { dur = await getAudioDuration(file); } catch (_) {}
+        return { file, dur };
+      })();
+      const slotsP = Promise.all((d.slots || []).map(async (sm) => {
+        if (sm.empty) return { id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true };
         const blob = await getMedia(id, sm.id);
-        if (!blob) { newSlots.push({ id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true }); continue; }
+        if (!blob) return { id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true };
         const file = new File([blob], sm.fileName || sm.id, { type: blob.type || (sm.isVideo ? "video/mp4" : "image/png") });
         const img = sm.isVideo ? await loadVideoEl(file) : await loadImageEl(file);
-        newSlots.push({ id: sm.id, seconds: sm.seconds, file, img, empty: false });
+        return { id: sm.id, seconds: sm.seconds, file, img, empty: false };
+      }));
+      const [audio, newSlots] = await Promise.all([audioP, slotsP]);
+      // Commit the loaded project.
+      if (audio) {
+        setAudioFile(audio.file); setAudioUrl(URL.createObjectURL(audio.file));
+        setAudioDuration(audio.dur);
+        getWaveformPeaks(audio.file).then(setPeaks).catch(() => {});
       }
       resetDoc({ slots: newSlots, transitionsByName: d.transitionsByName || {} });
       const st = d.settings || {};
@@ -563,11 +573,8 @@ export default function Home() {
       setCaptionFontScale(cp.captionFontScale ?? null);
       idRef.current = d.idCounter || newSlots.length;
       setBuilt(!!d.built);
-      setError(null); setOutUrl(null); setProgress(0);
-      setCurrentProject({ id: rec.id, name: rec.name, createdAt: rec.createdAt });
-      setView("editor");
     } finally { setLoadingProject(false); }
-  }, [resetDoc]);
+  }, [resetDoc, resetAllState]);
 
   // navigator.storage.estimate() lags behind an IndexedDB delete/write, so re-poll
   // a few times to catch the freed/added space without needing a manual refresh.
@@ -662,6 +669,7 @@ export default function Home() {
   // --- SPIKE: WebCodecs GPU render (video-only, no audio). Proves the pipeline. ---
   const [wcBusy, setWcBusy] = useState(false);
   const [wcProgress, setWcProgress] = useState(0);
+  const [wcPhase, setWcPhase] = useState("Rendering");
   const [wcOk, setWcOk] = useState(false);
   const [serverAvailable, setServerAvailable] = useState(false); // ffmpeg backend reachable?
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
@@ -670,8 +678,9 @@ export default function Home() {
     probeBackend().then(setServerAvailable).catch(() => setServerAvailable(false));
   }, []);
   const onWebCodecsTest = useCallback(async () => {
-    setWcBusy(true); setWcProgress(0);
+    setWcBusy(true); setWcProgress(0); setWcPhase("Rendering");
     wcCancelRef.current = false;
+    const logs = []; // diagnostics — shown in the failure dialog
     // Play inaudible audio for the duration so a backgrounded tab keeps rendering
     // at full speed (started here, inside the click gesture, so it's allowed).
     const stopKeepAwake = startKeepAwake();
@@ -706,19 +715,35 @@ export default function Home() {
           captionStyle, captionSize, captionLineHeight, captionFontScale,
         },
         imagesByName,
-        setWcProgress,
+        (frac, phase) => { setWcProgress(frac); if (phase) setWcPhase(phase); },
         () => wcCancelRef.current,
+        logs,
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = "webcodecs-test.mp4"; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      if (!(e && e.cancelled)) showAlert(e && e.message ? e.message : String(e), { title: "Fast render failed" });
+      if (!(e && e.cancelled)) {
+        const details = [
+          `Error: ${e && e.message ? e.message : String(e)}`,
+          "",
+          "— render log —",
+          ...logs,
+          "",
+          "— environment —",
+          `resolution: ${renderDims.width}x${renderDims.height} @ ${fps}fps`,
+          `userAgent: ${typeof navigator !== "undefined" ? navigator.userAgent : "?"}`,
+          e && e.stack ? `\nstack:\n${e.stack}` : "",
+        ].join("\n");
+        showAlert("The Fast render failed. Copy the details below if you want to report it.",
+          { title: "Fast render failed", details });
+      }
     } finally {
       stopKeepAwake();
       setWcBusy(false);
       setWcProgress(0);
+      setWcPhase("Rendering");
     }
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
       videosByName, videoInfoByName, fitByName, trimByName, volumeByName,
@@ -744,12 +769,6 @@ export default function Home() {
     <>
     <DialogHost />
     <main className="app">
-      {loadingProject && (
-        <div className="importing" role="status" aria-live="polite">
-          <span className="importing__spin" aria-hidden="true" />
-          Opening project…
-        </div>
-      )}
       <header className="nav">
         <div className="nav__brand">
           <img className="brand__logo" src="/logo.svg" alt="" width="28" height="28" />
@@ -833,7 +852,12 @@ export default function Home() {
       )}
 
       <div className="content">
-      {!showEditor ? (
+      {loadingProject ? (
+        <div className="projload">
+          <span className="projload__spin" aria-hidden="true" />
+          <span className="projload__txt">Loading project…</span>
+        </div>
+      ) : !showEditor ? (
         <section className="onboard">
           <h1 className="onboard__h">Sync your images to a voiceover, automatically.</h1>
           <p className="onboard__p">
@@ -906,7 +930,7 @@ export default function Home() {
           aspect={aspect} setAspect={setAspect} fps={fps} setFps={setFps}
           renderQuality={renderQuality} setRenderQuality={setRenderQuality} renderDims={renderDims}
           onWebCodecsTest={onWebCodecsTest} onWebCodecsCancel={onWebCodecsCancel}
-          wcBusy={wcBusy} wcProgress={wcProgress} wcAvailable={wcOk} serverAvailable={serverAvailable}
+          wcBusy={wcBusy} wcProgress={wcProgress} wcPhase={wcPhase} wcAvailable={wcOk} serverAvailable={serverAvailable}
           wcEnabled={wcEnabled} setWcEnabled={setWcEnabled}
           onRender={onRender} onCancel={onCancel} busy={busy} progress={progress}
           outUrl={outUrl} error={error} warnings={warnings}

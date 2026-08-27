@@ -318,27 +318,43 @@ function buildSegmentedPlan(spec, io, total) {
   for (let lo = 0; lo < n; lo += SEGMENT_MAX) chunks.push([lo, Math.min(lo + SEGMENT_MAX - 1, n - 1)]);
 
   const passes = [], segFiles = [], segDurs = [], boundaries = [];
+  const clipMeta = new Array(n); // per clip: which segment + its rebased in-segment start
   chunks.forEach(([lo, hi], s) => {
     // Rebase this chunk's clip starts to t=0 and compute its exact duration.
     let start = 0; const segClips = [];
-    for (let i = lo; i <= hi; i++) { segClips.push({ ...clips[i], start }); start += clips[i].duration - (i < hi ? tdur(i + 1) : 0); }
-    const segDur = start;
+    for (let i = lo; i <= hi; i++) {
+      segClips.push({ ...clips[i], start });
+      clipMeta[i] = { seg: s, rebased: start };
+      start += clips[i].duration - (i < hi ? tdur(i + 1) : 0);
+    }
+    // Snap the segment to a whole number of frames so the intermediate's REAL
+    // duration matches what the join assumes — otherwise a video clip's fractional
+    // timing drifts every following clip out of sync with the audio.
+    const segDur = Math.round(start * fps) / fps;
     const slice = (a) => (Array.isArray(a) ? a.slice(lo, hi + 1) : a);
     const { inputs, parts, last } = buildVideoChain(segClips, slice(paths), {
       width, height, fps, transitions: slice(transitions), transitionDuration, motions: slice(motions), motionAmount, trims: slice(trims), speeds: slice(speeds),
     });
     const fc = `fc_s${s}.txt`, out = `seg${s}.mp4`;
-    const args = [...inputs, "-filter_complex_script", fc, "-map", `[${last}]`, "-an", ...intermediateCodecArgs(encoder), "-t", segDur.toFixed(3), out];
+    const args = [...inputs, "-filter_complex_script", fc, "-map", `[${last}]`, "-an", ...intermediateCodecArgs(encoder), "-r", String(fps), "-t", segDur.toFixed(3), out];
     passes.push({ name: `segment ${s + 1}/${chunks.length}`, args, filterFiles: [{ name: fc, text: parts.join(";") }], output: out, total: segDur });
     segFiles.push(out); segDurs.push(segDur);
     if (s > 0) boundaries.push({ name: xfadeName(transitions && transitions[lo]), d: tdur(lo) });
   });
 
+  // Where each segment lands in the joined output (mirrors the join's xfade math).
+  const segOff = [0];
+  for (let j = 1; j < segDurs.length; j++) segOff[j] = segOff[j - 1] + segDurs[j - 1] - boundaries[j - 1].d;
+
   const audioClips = [];
   for (let i = 0; i < n; i++) {
     const vol = volumes ? +volumes[i] : 0;
     if (isVideoPath(paths[i]) && !clips[i].gap && vol > 0 && (!audible || audible[i])) {
-      audioClips.push({ i, path: paths[i], trim: Math.max(0, (trims && +trims[i]) || 0), speed: speeds && +speeds[i] > 0 ? +speeds[i] : 1, vol, start: clips[i].start, duration: clips[i].duration });
+      // Place the clip's audio at its RECONSTRUCTED output time (segment offset +
+      // in-segment start), not the original timeline — so it tracks its own frames.
+      const m = clipMeta[i] || { seg: 0, rebased: clips[i].start };
+      const outStart = (segOff[m.seg] || 0) + m.rebased;
+      audioClips.push({ i, path: paths[i], trim: Math.max(0, (trims && +trims[i]) || 0), speed: speeds && +speeds[i] > 0 ? +speeds[i] : 1, vol, start: outStart, duration: clips[i].duration });
     }
   }
   const joinFc = "fc_join.txt";
