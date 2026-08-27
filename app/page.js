@@ -699,11 +699,22 @@ export default function Home() {
   const [wcOk, setWcOk] = useState(false);
   const [serverAvailable, setServerAvailable] = useState(false); // ffmpeg backend reachable?
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
-  const [wcProfile, setWcProfile] = useState(null); // resolved render format (mp4/webm)
+  const [wcProfile, setWcProfile] = useState(null); // resolved render profile (mp4)
+  const [renderChecked, setRenderChecked] = useState(false); // capability probes done
   useEffect(() => {
-    webCodecsCanRender().then(setWcOk).catch(() => setWcOk(false));
-    probeBackend().then(setServerAvailable).catch(() => setServerAvailable(false));
+    let alive = true;
+    (async () => {
+      const [wc, srv] = await Promise.all([
+        webCodecsCanRender().catch(() => false),
+        probeBackend().catch(() => false),
+      ]);
+      if (!alive) return;
+      setWcOk(wc); setServerAvailable(srv); setRenderChecked(true);
+    })();
+    return () => { alive = false; };
   }, []);
+  // No way to export in this browser: no H.264 WebCodecs and no render backend.
+  const cantRender = renderChecked && !wcOk && !serverAvailable;
   // Resolve the output profile up front (recomputed when size/fps change) so the
   // Save dialog and filename use the right extension without an await after click.
   useEffect(() => {
@@ -822,6 +833,27 @@ export default function Home() {
   }, [clips, exportDuration, transitionsByName, motionByName, imagesByName, renderDims, fps, transitionDuration, motionAmount, audioFile,
       videosByName, videoInfoByName, fitByName, trimByName, volumeByName, currentProject, flashDone, wcProfile,
       captionsOn, captionCues, captionStyle, captionSize, captionLineHeight, captionFontScale]);
+
+  // Browser can't export video (no H.264 WebCodecs, no render backend) — block the
+  // whole app; there's no point letting them create projects they can't render.
+  if (cantRender) {
+    return (
+      <main className="unsupported">
+        <div className="unsupported__card">
+          <img className="unsupported__logo" src="/logo.svg" width="52" height="52" alt="" />
+          <h1 className="unsupported__h">Open in Chrome, Edge, or Safari</h1>
+          <p className="unsupported__p">
+            <span className="unsupported__brand">TryAIToday AutoEditor</span> exports video using your
+            browser’s built-in video encoder — which this browser doesn’t have.
+          </p>
+          <p className="unsupported__p">
+            Please open this site in <b>Google Chrome</b>, <b>Microsoft Edge</b>, or <b>Safari 16.4+</b>
+            {" "}to create and export your videos. (Firefox isn’t supported.)
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   if (view === "list") {
     return (

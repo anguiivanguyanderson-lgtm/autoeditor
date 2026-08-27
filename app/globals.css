@@ -1053,3 +1053,26 @@ button:focus-visible, .dz:focus-visible, a:focus-visible {
   display: grid; place-items: center; font-size: 12px; font-weight: 800;
   background: var(--green); color: #12211b;
 }
+
+/* Full-screen block for browsers that can't export video (e.g. Firefox). */
+.unsupported {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  padding: 24px; color: var(--text);
+  background: radial-gradient(130% 70% at 50% 100%, rgba(231, 232, 236, 0.05), transparent 60%), var(--bg);
+}
+.unsupported__card {
+  max-width: 460px; text-align: center; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 18px; padding: 40px 32px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+}
+.unsupported__logo { border-radius: 12px; margin-bottom: 20px; }
+.unsupported__h {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 14px;
+  background: linear-gradient(180deg, #ffffff, #e7e8ec 50%, #9aa0aa);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.unsupported__p { color: var(--muted); font-size: 14.5px; line-height: 1.6; margin: 0 0 12px; }
+.unsupported__p:last-child { margin-bottom: 0; }
+.unsupported__p b { color: var(--text); font-weight: 700; }
+.unsupported__brand { color: var(--text); font-weight: 700; }
