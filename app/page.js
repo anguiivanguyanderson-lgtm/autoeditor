@@ -7,7 +7,7 @@ import { resolveDimensions, capTo720 } from "../lib/dimensions";
 import { getAudioDuration } from "../lib/audio";
 import { getWaveformPeaks } from "../lib/waveform";
 import { renderVideo, cancelRender, getActiveRender, reconnectRender, probeBackend } from "../lib/serverRender";
-import { renderWebCodecs, webCodecsSupported, startKeepAwake } from "../lib/webcodecsRender";
+import { renderWebCodecs, webCodecsCanEncodeH264, startKeepAwake } from "../lib/webcodecsRender";
 import { DEFAULT_TRANSITION_DURATION, mixTransitions } from "../lib/transitions";
 import { parseTranscript } from "../lib/captions";
 import Dropzone from "../components/Dropzone";
@@ -70,6 +70,19 @@ function fmtTime(sec) {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// Run an async fn over items with a concurrency limit. Loading 250 large images
+// (or opening 250 IndexedDB reads) all at once spikes memory/CPU and freezes the
+// tab; a small limit keeps it fast without the freeze.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 // Undo/redo over one composition snapshot. Object URLs are intentionally never
@@ -545,14 +558,14 @@ export default function Home() {
         let dur = 0; try { dur = await getAudioDuration(file); } catch (_) {}
         return { file, dur };
       })();
-      const slotsP = Promise.all((d.slots || []).map(async (sm) => {
+      const slotsP = mapLimit(d.slots || [], 12, async (sm) => {
         if (sm.empty) return { id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true };
         const blob = await getMedia(id, sm.id);
         if (!blob) return { id: sm.id, seconds: sm.seconds, file: null, img: null, empty: true };
         const file = new File([blob], sm.fileName || sm.id, { type: blob.type || (sm.isVideo ? "video/mp4" : "image/png") });
         const img = sm.isVideo ? await loadVideoEl(file) : await loadImageEl(file);
         return { id: sm.id, seconds: sm.seconds, file, img, empty: false };
-      }));
+      });
       const [audio, newSlots] = await Promise.all([audioP, slotsP]);
       // Commit the loaded project.
       if (audio) {
@@ -589,8 +602,11 @@ export default function Home() {
     setTimeout(tick, 3000);
   }, []);
 
+  const [savingBack, setSavingBack] = useState(false);
   const backToProjects = useCallback(async () => {
-    if (saveRef.current) await saveRef.current();
+    setSavingBack(true);
+    try { if (saveRef.current) await saveRef.current(); } catch (_) {}
+    setSavingBack(false);
     setProjects(await listProjects());
     refreshStorage();
     setView("list");
@@ -684,7 +700,7 @@ export default function Home() {
   const [serverAvailable, setServerAvailable] = useState(false); // ffmpeg backend reachable?
   const [wcEnabled, setWcEnabled] = useState(true); // WebCodecs on by default (desktop)
   useEffect(() => {
-    setWcOk(webCodecsSupported());
+    webCodecsCanEncodeH264().then(setWcOk).catch(() => setWcOk(false));
     probeBackend().then(setServerAvailable).catch(() => setServerAvailable(false));
   }, []);
   const onWebCodecsTest = useCallback(async () => {
@@ -815,6 +831,12 @@ export default function Home() {
         <div className="donetoast" role="status" aria-live="polite" onClick={() => setDoneMsg(null)}>
           <span className="donetoast__ok" aria-hidden="true">✓</span>
           <span>Render complete — {doneMsg}</span>
+        </div>
+      )}
+      {savingBack && (
+        <div className="importing" role="status" aria-live="polite">
+          <span className="importing__spin" aria-hidden="true" />
+          Saving project…
         </div>
       )}
       <header className="nav">
