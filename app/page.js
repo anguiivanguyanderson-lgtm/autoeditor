@@ -732,25 +732,10 @@ export default function Home() {
       showAlert("This browser can't encode video. Use Chrome, Edge, or Safari 16.4+.", { title: "Fast render unavailable" });
       return;
     }
-    const ext = profile.container === "webm" ? "webm" : "mp4";
-    const fileName = `${((currentProject && currentProject.name) || "autoeditor").replace(/[^\w.-]+/g, "_") || "autoeditor"}.${ext}`;
-    // A long video's file is too big for one in-memory buffer, so stream it straight
-    // to a file the user picks (Chromium desktop). Prompt inside the click gesture,
-    // before any await, so the picker is allowed.
-    let writable = null;
-    const estBytes = (8_000_000 / 8) * (exportDuration || 0);
-    if (estBytes > 1_000_000_000 && typeof window !== "undefined" && typeof window.showSaveFilePicker === "function") {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: fileName,
-          types: [{ description: ext === "webm" ? "WebM video" : "MP4 video", accept: { [`video/${ext}`]: [`.${ext}`] } }],
-        });
-        writable = await handle.createWritable();
-      } catch (e) {
-        if (e && e.name === "AbortError") return; // user cancelled the save dialog
-        writable = null; // picker unavailable/failed — fall back to in-memory
-      }
-    }
+    const fileName = `${((currentProject && currentProject.name) || "autoeditor").replace(/[^\w.-]+/g, "_") || "autoeditor"}.mp4`;
+    // The renderer muxes into a chunked buffer (no single-ArrayBuffer size limit),
+    // so large videos download normally — no save dialog / File System API needed.
+    const writable = null;
     setWcBusy(true); setWcProgress(0); setWcPhase("Rendering");
     // Play inaudible audio for the duration so a backgrounded tab keeps rendering
     // at full speed (started here, inside the click gesture, so it's allowed).
