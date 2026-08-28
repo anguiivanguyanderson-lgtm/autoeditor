@@ -313,13 +313,43 @@ export default function Editor({
     if (a.paused) a.play(); else a.pause();
   }, []);
 
+  // Coalesce rapid scrub seeks: while a seek is still settling (slow for WAV),
+  // remember the latest target and apply it on 'seeked', so the drag's release
+  // position always wins instead of being dropped mid-seek.
+  const pendingSeekRef = useRef(null);
   const seek = useCallback((t) => {
     const a = audioRef.current;
     if (!a) return;
-    const c = Math.min(Math.max(t, 0), duration);
-    a.currentTime = c;
+    const c = Math.min(Math.max(t, 0), duration || t || 0);
     setTime(c);
+    if (a.seeking) pendingSeekRef.current = c;
+    else { pendingSeekRef.current = null; try { a.currentTime = c; } catch (_) {} }
   }, [duration]);
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onSeeked = () => {
+      const p = pendingSeekRef.current;
+      if (p != null) { pendingSeekRef.current = null; if (Math.abs(a.currentTime - p) > 0.02) { try { a.currentTime = p; } catch (_) {} } }
+    };
+    a.addEventListener("seeked", onSeeked);
+    return () => a.removeEventListener("seeked", onSeeked);
+  }, [audioUrl]);
+
+  // Scrubbing a *playing* WAV backward doesn't take — the seek fights live
+  // playback and the release position is lost (MP3 settles fast enough to hide
+  // this). So pause on grab, let the drag seek freely, then resume from the
+  // release point once the pointer is up.
+  const scrubResumeRef = useRef(false);
+  const onScrubStart = useCallback(() => {
+    const a = audioRef.current;
+    scrubResumeRef.current = !!(a && !a.paused);
+    if (a && !a.paused) { try { a.pause(); } catch (_) {} }
+  }, []);
+  const onScrubEnd = useCallback(() => {
+    const a = audioRef.current;
+    if (a && scrubResumeRef.current) { scrubResumeRef.current = false; a.play().catch(() => {}); }
+  }, []);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -434,6 +464,8 @@ export default function Editor({
           selectedName={selectedCut}
           onSelect={selectClip}
           onSeek={seek}
+          onScrubStart={onScrubStart}
+          onScrubEnd={onScrubEnd}
           onOpen={openInspect}
           onAdd={askAdd}
           onResizeBoundary={resizeBoundary}

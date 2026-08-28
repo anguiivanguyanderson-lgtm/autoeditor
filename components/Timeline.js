@@ -33,7 +33,7 @@ function Waveform({ peaks }) {
 export default function Timeline({
   clips, imageEls, duration, time, peaks, activeName, badClips,
   transitionsByName, motionByName, selectedName, onSelect,
-  onSeek, onOpen, onAdd, onResizeBoundary,
+  onSeek, onScrubStart, onScrubEnd, onOpen, onAdd, onResizeBoundary,
   trimEnd, onTrimChange,
 }) {
   const trackRef = useRef(null);
@@ -50,15 +50,18 @@ export default function Timeline({
   }, [duration, onSeek]);
 
   const onScrubDown = useCallback((e) => {
+    if (onScrubStart) onScrubStart();
     seekAt(e.clientX);
     const move = (ev) => seekAt(ev.clientX);
-    const up = () => {
+    const up = (ev) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      seekAt(ev.clientX); // make sure the final release position is applied
+      if (onScrubEnd) onScrubEnd();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-  }, [seekAt]);
+  }, [seekAt, onScrubStart, onScrubEnd]);
 
   const MIN_TRIM = 1;      // never allow a zero-length export
   const SNAP_PX = 8;       // snap to a clip boundary within this many pixels
