@@ -783,14 +783,22 @@ export default function Home() {
         logs,
         writable,
       );
+      // Audio can be dropped without failing the whole render (e.g. an unsupported
+      // codec/rate) — the video still saves. Surface that clearly so a silent, soundless
+      // file isn't a surprise.
+      const audioIssue = logs.find((l) => /audio failed|produced no audio/i.test(l));
       if (blob) { // in-memory result → download; a streamed render is already on disk
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url; a.download = fileName; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
-        flashDone(`Downloaded “${fileName}”`);
+        flashDone(audioIssue ? `Downloaded “${fileName}” — no audio` : `Downloaded “${fileName}”`);
       } else { // streamed straight to the file the user chose — no browser download
-        flashDone(`Saved to “${fileName}”`);
+        flashDone(audioIssue ? `Saved “${fileName}” — no audio` : `Saved to “${fileName}”`);
+      }
+      if (audioIssue) {
+        showAlert("Your video was created, but the audio couldn’t be added, so the file has no sound.",
+          { title: "Video saved without audio", details: `${audioIssue}\n\nThis usually means an unusual audio format. Try re-exporting the voiceover as a standard 48 kHz WAV or MP3 and render again.` });
       }
     } catch (e) {
       if (writable) { try { await writable.abort(); } catch (_) {} } // discard partial file
