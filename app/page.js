@@ -818,11 +818,16 @@ export default function Home() {
         // with "Encoding task did not complete" (then "not configured"). It's a browser
         // limit — Chromium handles it — so point the user there instead of a generic error.
         const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-        const isWebKit = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && / Version\/.*Safari/.test(ua) && !/Chrome|Chromium|CriOS|Edg/.test(ua));
+        const isIOS = /iPad|iPhone|iPod/.test(ua);
+        const isMacSafari = /Macintosh/.test(ua) && / Version\/.*Safari/.test(ua) && !/Chrome|Chromium|CriOS|Edg/.test(ua);
         const msg = (e && e.message ? e.message : "").toLowerCase();
         const encoderGaveUp = msg.includes("not configured") || msg.includes("did not complete") || logs.some((l) => /did not complete/i.test(l));
-        if (isWebKit && encoderGaveUp) {
-          showAlert("Safari couldn’t finish this render — its video encoder gives up on long videos. Please render in Google Chrome or Microsoft Edge (or export a shorter / lower-resolution video).",
+        if (isIOS && encoderGaveUp) {
+          // Every browser on iPhone/iPad is WebKit, so "use Chrome on iPhone" wouldn't help.
+          showAlert("This video is too long for an iPhone or iPad to finish encoding — every browser on iOS shares the same limit. Please render on a computer (Chrome or Edge) or an Android phone, or export a shorter / lower-resolution video.",
+            { title: "Render long videos on a computer", details });
+        } else if (isMacSafari && encoderGaveUp) {
+          showAlert("Safari couldn’t finish this render — its video encoder gives up on long videos. Please render in Google Chrome or Microsoft Edge on this Mac (or export a shorter / lower-resolution video).",
             { title: "Use Chrome or Edge for long renders", details });
         } else {
           showAlert("The Fast render failed. Copy the details below if you want to report it.",
