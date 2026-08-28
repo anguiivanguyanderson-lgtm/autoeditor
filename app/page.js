@@ -814,8 +814,20 @@ export default function Home() {
           `userAgent: ${typeof navigator !== "undefined" ? navigator.userAgent : "?"}`,
           e && e.stack ? `\nstack:\n${e.stack}` : "",
         ].join("\n");
-        showAlert("The Fast render failed. Copy the details below if you want to report it.",
-          { title: "Fast render failed", details });
+        // WebKit's (Safari / any iOS browser) video encoder gives up on long encodes
+        // with "Encoding task did not complete" (then "not configured"). It's a browser
+        // limit — Chromium handles it — so point the user there instead of a generic error.
+        const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+        const isWebKit = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && / Version\/.*Safari/.test(ua) && !/Chrome|Chromium|CriOS|Edg/.test(ua));
+        const msg = (e && e.message ? e.message : "").toLowerCase();
+        const encoderGaveUp = msg.includes("not configured") || msg.includes("did not complete") || logs.some((l) => /did not complete/i.test(l));
+        if (isWebKit && encoderGaveUp) {
+          showAlert("Safari couldn’t finish this render — its video encoder gives up on long videos. Please render in Google Chrome or Microsoft Edge (or export a shorter / lower-resolution video).",
+            { title: "Use Chrome or Edge for long renders", details });
+        } else {
+          showAlert("The Fast render failed. Copy the details below if you want to report it.",
+            { title: "Fast render failed", details });
+        }
       }
     } finally {
       stopKeepAwake();
