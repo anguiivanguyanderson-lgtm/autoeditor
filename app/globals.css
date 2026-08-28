@@ -288,18 +288,12 @@ body {
   background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px;
   display: flex; flex-direction: column;
 }
-/* Center the player and let it size to the video's aspect ratio (via the canvas's
-   intrinsic width/height) instead of stretching to fill all vertical space — so it
-   keeps a clean shape and doesn't grow taller as the viewport/zoom changes. */
 .viewer__frame {
-  flex: 1; min-height: 0;
-  display: flex; align-items: center; justify-content: center;
-}
-.viewer__canvas {
-  display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
-  background: #000; border-radius: 10px; overflow: hidden;
+  flex: 1; min-height: 0; background: #000;
+  border-radius: 10px; overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
 }
+.viewer__canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
 
 /* Panels */
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
