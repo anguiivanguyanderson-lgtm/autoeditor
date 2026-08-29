@@ -762,22 +762,11 @@ export default function Home() {
       const volumes = exportClips.map((c) =>
         Object.prototype.hasOwnProperty.call(videosByName, c.name)
           ? (volumeByName[c.name] == null ? 0.5 : volumeByName[c.name]) : 0);
-      // Streaming to disk has no size limit → full 8 Mbps. In-memory (Safari, iOS,
-      // Firefox, mobile) must fit the whole MP4 in one buffer, so scale the bitrate
-      // down for long videos to stay under a memory-safe cap.
-      // iOS/iPadOS never reports deviceMemory, but WebKit reloads the tab (losing the
-      // render) once a page crosses its per-tab memory ceiling — a ~1.1 GB in-RAM MP4
-      // trips it. Treat iOS as the low-memory tier so the whole file stays ~550 MB.
-      // (iPadOS presents a "Macintosh" UA but has a touch screen, so key off that.)
-      const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-      const isIOS = /iPad|iPhone|iPod/.test(ua)
-        || (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
-      const lowMem = isIOS
-        || (typeof navigator !== "undefined" && navigator.deviceMemory && navigator.deviceMemory <= 4);
-      const memCap = lowMem ? 550e6 : 1_150e6;
-      const bitrate = writable
-        ? 8_000_000
-        : Math.max(2_000_000, Math.min(8_000_000, Math.floor((memCap * 8) / Math.max(1, exportDuration || 1))));
+      // Request the full 8 Mbps. The renderer decides the effective rate: a streamed
+      // (to-disk) output keeps it, while an in-memory output is capped to a memory-safe
+      // rate for long videos — it makes that call because only it knows whether streaming
+      // actually engaged (see renderWebCodecs).
+      const bitrate = 8_000_000;
       const blob = await renderWebCodecs(
         {
           clips: exportClips, width: renderDims.width, height: renderDims.height, fps, bitrate, profile,
