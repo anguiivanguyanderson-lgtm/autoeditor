@@ -778,17 +778,13 @@ export default function Home() {
       const bitrate = writable
         ? 8_000_000
         : Math.max(2_000_000, Math.min(8_000_000, Math.floor((memCap * 8) / Math.max(1, exportDuration || 1))));
-      // Debug lever: ?stream=1 forces the fragmented-MP4-to-OPFS path on any OPFS browser
-      // (not just iOS), so the fragmented file can be tested for playability on Android /
-      // desktop. Off by default — real users are unaffected.
-      const forceDiskStream = typeof window !== "undefined" && /[?&]stream=1(&|$)/.test(window.location.search || "");
       const blob = await renderWebCodecs(
         {
           clips: exportClips, width: renderDims.width, height: renderDims.height, fps, bitrate, profile,
           transitions, transitionDuration, motions, motionAmount, audioFile,
           videosByName, trims, speeds, volumes,
           cues: captionsOn && captionCues.length ? captionCues : null,
-          captionStyle, captionSize, captionLineHeight, captionFontScale, forceDiskStream,
+          captionStyle, captionSize, captionLineHeight, captionFontScale,
         },
         imagesByName,
         (frac, phase) => { setWcProgress(frac); if (phase) setWcPhase(phase); },
