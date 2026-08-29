@@ -240,40 +240,16 @@ function graphArgs({ clips, paths, audioName, width, height, fps, transitions, t
 // (default 256 fds). Above this many clips we render in segments and stitch them.
 const SEGMENT_MAX = Math.max(10, parseInt(process.env.RENDER_SEGMENT_MAX || "60", 10) || 60);
 
-// Near-lossless intermediate settings per encoder (segments are re-encoded once in
-// the join, so we keep them visually lossless while staying on the same silicon).
-function intermediateCodecArgs(encoder) {
-  switch (encoder) {
-    case "h264_qsv":   return ["-c:v", "h264_qsv", "-global_quality", "15", "-pix_fmt", "yuv420p"];
-    case "h264_nvenc": return ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "constqp", "-qp", "15", "-pix_fmt", "yuv420p"];
-    case "h264_amf":   return ["-c:v", "h264_amf", "-rc", "cqp", "-qp_i", "15", "-qp_p", "15", "-pix_fmt", "yuv420p"];
-    case "h264_mediacodec": return ["-c:v", "h264_mediacodec", "-b:v", "40M"]; // negotiates its own pix_fmt
-    default:           return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-pix_fmt", "yuv420p"];
-  }
-}
-
-// Final pass: xfade the segment videos together at their boundary transitions
-// (reproducing the crossfade seamlessly), then apply captions, fades and audio.
-// audioClips = audible video clips (re-opened here for their sound). Returns { args, text }.
-function buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capChain, audioName, audioClips, fadeIn, fadeOut, total, encoder }, joinFc) {
-  const S = segFiles.length;
-  const parts = [];
-  for (let j = 0; j < S; j++) parts.push(`[${j}:v]fps=${fps},format=yuv420p,setsar=1[s${j}]`);
-  let last = "s0", off = 0;
-  for (let j = 1; j < S; j++) {
-    const bt = boundaries[j - 1];
-    off += segDurs[j - 1] - bt.d;
-    const out = j === S - 1 ? "vjoin" : `jx${j}`;
-    parts.push(`[${last}][s${j}]xfade=transition=${bt.name}:duration=${bt.d.toFixed(3)}:offset=${off.toFixed(3)}[${out}]`);
-    last = out;
-  }
-  if (capChain) { parts.push(`[${last}]${capChain}[vcap]`); last = "vcap"; }
-  const vf = fadeVideo(fadeIn, fadeOut, total);
-  if (vf.length) { parts.push(`[${last}]${vf.join(",")}[vf]`); last = "vf"; }
-  // Audio: voiceover is input S; audible video clips follow (re-opened for sound).
-  const voice = S;
-  const audioInputs = [], vAudio = [];
-  let ai = S + 1;
+// Final pass for a segmented render: concat the finished segment videos with STREAM COPY
+// (no video re-encode — this is the speed win), and mux the audio (voiceover + each audible
+// clip's sound) in one cheap audio-only encode. The segments already have their transitions,
+// captions and fades baked in, so the joined video is just copied through. `concatName` is a
+// concat-demuxer list file; `audioFc` an optional filter_complex script for the audio mix.
+// Returns { args, text } (text = "" when the audio needs no filtergraph).
+function buildConcatAudioArgs({ audioName, audioClips, fadeIn, fadeOut, total }, concatName, audioFc) {
+  // input 0 = concat video, input 1 = voiceover, audible clip audio follows.
+  const parts = [], vAudio = [], audioInputs = [];
+  let ai = 2;
   for (const ac of audioClips) {
     audioInputs.push("-ss", ac.trim.toFixed(3), "-i", ac.path);
     const idx = ai++;
@@ -285,82 +261,111 @@ function buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capC
   const af = fadeAudio(fadeIn, fadeOut, total);
   let amap;
   if (vAudio.length) {
-    parts.push(`[${voice}:a]${vAudio.join("")}amix=inputs=${vAudio.length + 1}:normalize=0:dropout_transition=0[amx]`);
+    parts.push(`[1:a]${vAudio.join("")}amix=inputs=${vAudio.length + 1}:normalize=0:dropout_transition=0[amx]`);
     if (af.length) { parts.push(`[amx]${af.join(",")}[aout]`); amap = "[aout]"; } else amap = "[amx]";
+  } else if (af.length) {
+    parts.push(`[1:a]${af.join(",")}[aout]`); amap = "[aout]";
   } else {
-    amap = `${voice}:a`;
-    if (af.length) { parts.push(`[${voice}:a]${af.join(",")}[aout]`); amap = "[aout]"; }
+    amap = "1:a";
   }
-  const inputArgs = [];
-  for (const f of segFiles) inputArgs.push("-i", f);
-  inputArgs.push("-i", audioName, ...audioInputs);
   const args = [
-    ...inputArgs,
-    "-filter_complex_script", joinFc,
-    "-map", `[${last}]`, "-map", amap,
+    "-f", "concat", "-safe", "0", "-i", concatName,
+    "-i", audioName, ...audioInputs,
+    ...(parts.length ? ["-filter_complex_script", audioFc] : []),
+    "-map", "0:v", "-c:v", "copy",
+    "-map", amap, "-c:a", "aac", "-b:a", "192k",
     "-t", total.toFixed(3),
-    ...videoCodecArgs(encoder),
-    "-c:a", "aac", "-b:a", "192k",
     "-movflags", "+faststart", "output.mp4",
   ];
   return { args, text: parts.join(";") };
 }
 
-// A multi-pass plan: render clips in chunks of SEGMENT_MAX to near-lossless
-// intermediates, then a small join pass xfades them + adds captions/audio.
-function buildSegmentedPlan(spec, io, total) {
-  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, trims, volumes, speeds, fadeIn = 0, fadeOut = 0 } = spec;
-  const { paths, audioName, capChain = "", encoder = "libx264", audible } = io;
+// A multi-pass plan built for SPEED on long timelines. Each chunk is rendered as a
+// FINAL-quality, self-contained segment video (its own transitions, captions and fades
+// baked in), then the segments are concatenated with stream-copy and the audio muxed once.
+// Every clip is encoded EXACTLY once — no near-lossless intermediate and no second
+// full-timeline re-encode (that double-encode is what made long renders take hours).
+// Chunk boundaries are placed at CUT points so the copy-concat has no visible seam; if no
+// cut appears within a hard cap, a boundary is forced (that one crossfade becomes a cut).
+function buildSegmentedPlan(spec, io) {
+  const { clips, width, height, fps = 30, transitions, transitionDuration = 0.4, motions, motionAmount = 0.08, trims, volumes, speeds, fadeIn = 0, fadeOut = 0,
+    captions, captionStyle = "classic", captionSize = "md", captionLineHeight, captionFontScale } = spec;
+  const { paths, audioName, encoder = "libx264", audible } = io;
   const n = clips.length;
   const frame = 1 / fps;
   const tdur = (k) => transitionDur(transitions, transitionDuration, k, frame);
-  const chunks = [];
-  for (let lo = 0; lo < n; lo += SEGMENT_MAX) chunks.push([lo, Math.min(lo + SEGMENT_MAX - 1, n - 1)]);
+  const hasCaps = Array.isArray(captions) && captions.length > 0;
 
-  const passes = [], segFiles = [], segDurs = [], boundaries = [];
+  // Fixed SEGMENT_MAX chunks — bounds how many inputs each pass opens (same as before).
+  // Each segment boundary becomes a plain CUT so the finished segments can be stream-copy
+  // concatenated; the only thing lost is a crossfade that fell exactly on a boundary
+  // (a handful across a whole video), which reads as a hard cut instead.
+  const chunks = [];
+  for (let c = 0; c < n; c += SEGMENT_MAX) chunks.push([c, Math.min(c + SEGMENT_MAX - 1, n - 1)]);
+
+  const passes = [], segFiles = [], segOff = [];
   const clipMeta = new Array(n); // per clip: which segment + its rebased in-segment start
-  chunks.forEach(([lo, hi], s) => {
-    // Rebase this chunk's clip starts to t=0 and compute its exact duration.
+  let acc = 0;
+  chunks.forEach(([clo, chi], s) => {
+    // Rebase this chunk's clip starts to t=0 and compute its exact (frame-snapped) duration.
     let start = 0; const segClips = [];
-    for (let i = lo; i <= hi; i++) {
+    for (let i = clo; i <= chi; i++) {
       segClips.push({ ...clips[i], start });
       clipMeta[i] = { seg: s, rebased: start };
-      start += clips[i].duration - (i < hi ? tdur(i + 1) : 0);
+      start += clips[i].duration - (i < chi ? tdur(i + 1) : 0);
     }
-    // Snap the segment to a whole number of frames so the intermediate's REAL
-    // duration matches what the join assumes — otherwise a video clip's fractional
-    // timing drifts every following clip out of sync with the audio.
     const segDur = Math.round(start * fps) / fps;
-    const slice = (a) => (Array.isArray(a) ? a.slice(lo, hi + 1) : a);
-    const { inputs, parts, last } = buildVideoChain(segClips, slice(paths), {
+    segOff[s] = acc; acc += segDur; // cut boundaries → segments just abut, no overlap
+    const slice = (a) => (Array.isArray(a) ? a.slice(clo, chi + 1) : a);
+    const { inputs, parts, last: vEnd } = buildVideoChain(segClips, slice(paths), {
       width, height, fps, transitions: slice(transitions), transitionDuration, motions: slice(motions), motionAmount, trims: slice(trims), speeds: slice(speeds),
     });
+    let last = vEnd;
+    const capFiles = [];
+    // Per-segment captions: cues overlapping [A,B) shifted to segment-local time. A unique
+    // file prefix keeps each segment's textfiles from colliding in the shared job dir.
+    if (hasCaps) {
+      const A = segOff[s], B = segOff[s] + segDur, segCues = [];
+      for (const c of captions) {
+        if (c.end <= A || c.start >= B) continue;
+        segCues.push({ ...c, start: Math.max(0, c.start - A), end: Math.min(segDur, c.end - A) });
+      }
+      if (segCues.length) {
+        const { filter, files } = buildCaptionBurn(segCues, captionStyle, width, height, captionSize, captionLineHeight, captionFontScale, `s${s}_`);
+        parts.push(`[${last}]${filter}[vcap]`); last = "vcap";
+        for (const f of files) capFiles.push(f);
+      }
+    }
+    // Fades belong only at the true ends of the whole video: fade-in on the first segment,
+    // fade-out on the last.
+    const segVf = fadeVideo(s === 0 ? fadeIn : 0, s === chunks.length - 1 ? fadeOut : 0, segDur);
+    if (segVf.length) { parts.push(`[${last}]${segVf.join(",")}[vf]`); last = "vf"; }
     const fc = `fc_s${s}.txt`, out = `seg${s}.mp4`;
-    const args = [...inputs, "-filter_complex_script", fc, "-map", `[${last}]`, "-an", ...intermediateCodecArgs(encoder), "-r", String(fps), "-t", segDur.toFixed(3), out];
-    passes.push({ name: `segment ${s + 1}/${chunks.length}`, args, filterFiles: [{ name: fc, text: parts.join(";") }], output: out, total: segDur });
-    segFiles.push(out); segDurs.push(segDur);
-    if (s > 0) boundaries.push({ name: xfadeName(transitions && transitions[lo]), d: tdur(lo) });
+    const args = [...inputs, "-filter_complex_script", fc, "-map", `[${last}]`, "-an", ...videoCodecArgs(encoder), "-r", String(fps), "-t", segDur.toFixed(3), out];
+    passes.push({ name: `segment ${s + 1}/${chunks.length}`, args, filterFiles: [{ name: fc, text: parts.join(";") }, ...capFiles], output: out, total: segDur });
+    segFiles.push(out);
   });
-
-  // Where each segment lands in the joined output (mirrors the join's xfade math).
-  const segOff = [0];
-  for (let j = 1; j < segDurs.length; j++) segOff[j] = segOff[j - 1] + segDurs[j - 1] - boundaries[j - 1].d;
 
   const audioClips = [];
   for (let i = 0; i < n; i++) {
     const vol = volumes ? +volumes[i] : 0;
     if (isVideoPath(paths[i]) && !clips[i].gap && vol > 0 && (!audible || audible[i])) {
-      // Place the clip's audio at its RECONSTRUCTED output time (segment offset +
-      // in-segment start), not the original timeline — so it tracks its own frames.
+      // Place each clip's audio at its RECONSTRUCTED output time (segment offset + in-segment
+      // start), not the original timeline — so it tracks its own frames.
       const m = clipMeta[i] || { seg: 0, rebased: clips[i].start };
       const outStart = (segOff[m.seg] || 0) + m.rebased;
       audioClips.push({ i, path: paths[i], trim: Math.max(0, (trims && +trims[i]) || 0), speed: speeds && +speeds[i] > 0 ? +speeds[i] : 1, vol, start: outStart, duration: clips[i].duration });
     }
   }
-  const joinFc = "fc_join.txt";
-  const { args, text } = buildJoinArgs({ segFiles, segDurs, boundaries, width, height, fps, capChain, audioName, audioClips, fadeIn, fadeOut, total, encoder }, joinFc);
-  passes.push({ name: "join", args, filterFiles: [{ name: joinFc, text }], output: "output.mp4", total });
-  return { mode: "segmented", total, passes };
+
+  const vidTotal = acc; // video length = summed segment durations (cut boundaries add no overlap)
+  const concatTxt = segFiles.map((f) => `file '${f}'`).join("\n") + "\n";
+  const audioFc = "fc_audio.txt";
+  const { args, text } = buildConcatAudioArgs({ audioName, audioClips, fadeIn, fadeOut, total: vidTotal }, "segs.txt", audioFc);
+  const joinFiles = [{ name: "segs.txt", text: concatTxt }];
+  if (text) joinFiles.push({ name: audioFc, text });
+  passes.push({ name: "join (copy)", args, filterFiles: joinFiles, output: "output.mp4", total: vidTotal });
+  return { mode: "segmented", total: vidTotal, passes };
 }
 
 // spec: { clips, width, height, fps, transitions, transitionDuration, fadeIn, fadeOut }
@@ -379,7 +384,7 @@ export function buildRenderPlan(spec, io) {
     paths.some((p, i) => isVideoPath(p) && clips[i] && !clips[i].gap);
   const useGraph = hasTransition || hasMotion || hasVideo;
   // Big graph timelines are split into segments + a join to dodge the OS limits.
-  if (useGraph && clips.length > SEGMENT_MAX) return buildSegmentedPlan(spec, io, total);
+  if (useGraph && clips.length > SEGMENT_MAX) return buildSegmentedPlan(spec, io);
   const common = { clips, paths, audioName, width, height, fps, fadeIn, fadeOut, total, capChain, encoder };
   const filterFiles = [];
   const args = useGraph

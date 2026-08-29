@@ -383,10 +383,11 @@ body {
 .cancel:hover { background: rgba(217,148,136,.14); border-color: var(--bad); }
 .download {
   display: block; text-align: center; margin-top: 10px; text-decoration: none;
-  font-weight: 700; font-size: 15px; color: #052012;
-  background: var(--green); border-radius: 11px; padding: 12px;
+  font-weight: 700; font-size: 15px; color: var(--green);
+  background: linear-gradient(180deg, #243330, #1b2724);
+  border: 1px solid rgba(160,194,180,.30); border-radius: 11px; padding: 12px;
 }
-.download:hover { filter: brightness(1.05); }
+.download:hover { filter: brightness(1.12); border-color: rgba(160,194,180,.5); }
 .progress { height: 7px; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin-top: 10px; }
 .progress > i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
 .export__hint { font-size: 11.5px; color: var(--faint); margin: 14px 0 0; line-height: 1.45; }

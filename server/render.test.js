@@ -129,38 +129,43 @@ describe("segmented render (large graph timelines)", () => {
   const trans = many.map((_, k) => (k === 0 ? "cut" : "fade"));
   const io2 = { paths, audioName: "audio.mp3", capChain: "" };
 
-  it("splits a big graph timeline into segment passes + one join pass", () => {
+  it("splits a big graph timeline into segment passes + one stream-copy join pass", () => {
     const p = buildRenderPlan({ ...base, clips: many, transitions: trans, transitionDuration: TD }, io2);
     expect(p.mode).toBe("segmented");
     expect(p.passes.length).toBe(4); // 130/60 = 3 segments + join
     expect(p.passes.slice(0, 3).map((x) => x.output)).toEqual(["seg0.mp4", "seg1.mp4", "seg2.mp4"]);
     expect(p.passes[3].output).toBe("output.mp4");
-    expect(p.total).toBeCloseTo(many[N - 1].start + D, 3);
+    // Segment boundaries are cuts (no overlap), so total = summed segment durations
+    // (60-clip segments = 96.4s each, final 10-clip segment = 16.4s).
+    expect(p.total).toBeCloseTo(96.4 + 96.4 + 16.4, 2);
   });
 
-  it("renders each segment video-only at near-lossless quality, keeping its internal transitions", () => {
+  it("renders each segment video-only at final quality, keeping its internal transitions", () => {
     const p = buildRenderPlan({ ...base, clips: many, transitions: trans, transitionDuration: TD }, io2);
     const seg = p.passes[0];
     expect(seg.args).toContain("-an");
-    expect(seg.args.join(" ")).toContain("-crf 12"); // libx264 near-lossless intermediate
+    expect(seg.args.join(" ")).toContain("-crf 23"); // libx264 final quality (each clip encoded once)
     expect(seg.filterFiles[0].name).toBe("fc_s0.txt");
-    expect(seg.filterFiles[0].text).toContain("xfade=transition=fade");
+    expect(seg.filterFiles[0].text).toContain("xfade=transition=fade"); // internal transitions kept
   });
 
-  it("join xfades the segments at the boundary transition (seamless) + adds captions and audio", () => {
+  it("joins segments with stream copy (no re-encode) and bakes captions into the segments", () => {
+    const captions = [{ start: 1, end: 3, text: "hello" }]; // falls inside segment 0
     const p = buildRenderPlan(
-      { ...base, clips: many, transitions: trans, transitionDuration: TD },
-      { ...io2, capChain: "drawtext=fontfile=caption.ttf:textfile=cap0.txt" }
+      { ...base, clips: many, transitions: trans, transitionDuration: TD, captions, captionStyle: "classic" },
+      io2
     );
     const join = p.passes[3];
-    const fc = join.filterFiles[0].text;
-    // segment 0 (clips 0..59) is 96.4s; boundary xfade offset = 96.4 - 0.4 = 96.0
-    expect(fc).toContain("xfade=transition=fade");
-    expect(fc).toContain("offset=96.000");
-    expect(fc).toContain("offset=192.000"); // second boundary
-    expect(fc).toContain("drawtext=fontfile=caption.ttf");
-    expect(join.args.join(" ")).toContain("-i audio.mp3");
+    const jargs = join.args.join(" ");
+    expect(jargs).toContain("-f concat");    // concat demuxer joins the finished segments
+    expect(jargs).toContain("-c:v copy");    // video is stream-copied, NOT re-encoded
+    expect(jargs).not.toContain("xfade");    // no cross-segment xfade / re-encode anymore
+    expect(jargs).toContain("-i audio.mp3"); // voiceover muxed in
     expect(join.args).toContain("output.mp4");
+    // Captions are burned into the segment that contains them, with a per-segment file prefix.
+    const seg0fc = p.passes[0].filterFiles[0].text;
+    expect(seg0fc).toContain("drawtext");
+    expect(seg0fc).toContain("s0_cap0.txt");
   });
 
   it("stays single-pass below the segment threshold", () => {

@@ -64,7 +64,7 @@ const lineTop = (H, fontPx, n, i, lhf = 1.16) =>
 
 // ---- render: one centered drawtext per LINE (so each line is centered) ----
 // Returns the filter chain plus the per-line textfiles to write into the FS.
-export function buildCaptionBurn(cues, styleId, width, height, sizeId, lineHeight, fontScale) {
+export function buildCaptionBurn(cues, styleId, width, height, sizeId, lineHeight, fontScale, prefix = "") {
   const st = CAPTION_STYLES[styleId] || CAPTION_STYLES.classic;
   const fs = captionFontPx(height, sizeId, fontScale);
   const bw = Math.max(2, Math.round(fs / 9));
@@ -77,7 +77,7 @@ export function buildCaptionBurn(cues, styleId, width, height, sizeId, lineHeigh
     const n = lines.length;
     const s = c.start.toFixed(3), e = c.end.toFixed(3);
     for (let i = 0; i < n; i++) {
-      const name = captionCueFile(li++);
+      const name = prefix + captionCueFile(li++);
       files.push({ name, text: sanitizeCueText(lines[i]) });
       const y = lineTop(height, fs, n, i, lhf);
       filters.push(

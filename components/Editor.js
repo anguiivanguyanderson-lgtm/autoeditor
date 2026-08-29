@@ -529,9 +529,10 @@ export default function Editor({
             </div>
           )}
 
-          {/* Toggle only when BOTH paths exist (a render backend + WebCodecs).
-              With no backend (e.g. Vercel) the app is WebCodecs-only, no toggle. */}
-          {wcAvailable && serverAvailable && (
+          {/* Fast-render-only for now: the Fast/ffmpeg toggle is hidden and WebCodecs is
+              always used when available. The ffmpeg backend code is kept (just not exposed);
+              flip this back on to re-enable the toggle. */}
+          {false && wcAvailable && serverAvailable && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, opacity: (busy || wcBusy) ? 0.5 : 1 }}>
               <span style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.85 }}>⚡ Fast render</span>
               <button
@@ -551,7 +552,7 @@ export default function Editor({
             (wcAvailable || serverAvailable) ? (
               <button
                 className="render"
-                onClick={(wcAvailable && (!serverAvailable || wcEnabled)) ? onWebCodecsTest : onRender}
+                onClick={wcAvailable ? onWebCodecsTest : onRender}
               >Render MP4</button>
             ) : (
               <div className="note">Rendering needs Chrome, Edge, or Safari 16.4+ (WebCodecs) in this browser.</div>
