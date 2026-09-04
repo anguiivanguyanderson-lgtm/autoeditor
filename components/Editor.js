@@ -44,7 +44,12 @@ export default function Editor({
   captionName, captionError, onCaptionFile,
 }) {
   const canvasRef = useRef(null);
-  const audioRef = useRef(null);
+  const audioCtxRef = useRef(null);     // shared AudioContext for preview playback
+  const audioBufferRef = useRef(null);  // decoded PCM for the current audioUrl
+  const sourceRef = useRef(null);       // the currently-playing AudioBufferSourceNode, if any
+  const startCtxTimeRef = useRef(0);    // ctx.currentTime when that source started
+  const startOffsetRef = useRef(0);     // buffer offset (seconds) it started at
+  const manualStopRef = useRef(false);  // true while we stop a source ourselves (vs it ending naturally)
   const rafRef = useRef(0);
   const fileInputRef = useRef(null);
   const capInputRef = useRef(null);
@@ -56,6 +61,77 @@ export default function Editor({
   const timeRef = useRef(0);      // latest playhead time
   const modalVideoRef = useRef(null); // the trim scrubber <video> in the inspector
   useEffect(() => { trimEndRef.current = exportDuration; }, [exportDuration]);
+
+  // Current playhead position in seconds, whether or not we're mid-playback.
+  const currentOffset = useCallback(() => {
+    if (!sourceRef.current) return startOffsetRef.current;
+    const buf = audioBufferRef.current;
+    const ctx = audioCtxRef.current;
+    const t = startOffsetRef.current + (ctx.currentTime - startCtxTimeRef.current);
+    return buf ? Math.min(Math.max(t, 0), buf.duration) : Math.max(t, 0);
+  }, []);
+
+  const stopSource = useCallback(() => {
+    const src = sourceRef.current;
+    if (!src) return;
+    manualStopRef.current = true;
+    try { src.onended = null; src.stop(); } catch { /* already stopped */ }
+    try { src.disconnect(); } catch { /* ignore */ }
+    sourceRef.current = null;
+  }, []);
+
+  const loop = useCallback(() => {
+    const end = trimEndRef.current;
+    const t = currentOffset();
+    if (end > 0 && t >= end) {
+      startOffsetRef.current = end;
+      stopSource();
+      setPlaying(false);
+      setTime(end);
+      cancelAnimationFrame(rafRef.current);
+      return;
+    }
+    setTime(t);
+    rafRef.current = requestAnimationFrame(loop);
+  }, [currentOffset, stopSource]);
+
+  const playFrom = useCallback((offset) => {
+    const ctx = audioCtxRef.current;
+    const buf = audioBufferRef.current;
+    if (!ctx || !buf) return;
+    stopSource();
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const node = ctx.createBufferSource();
+    node.buffer = buf;
+    node.connect(ctx.destination);
+    node.onended = () => {
+      if (manualStopRef.current) { manualStopRef.current = false; return; } // we stopped this on purpose
+      sourceRef.current = null;
+      setPlaying(false);
+      cancelAnimationFrame(rafRef.current);
+    };
+    const clamped = Math.min(Math.max(offset, 0), buf.duration);
+    node.start(0, clamped);
+    sourceRef.current = node;
+    startCtxTimeRef.current = ctx.currentTime;
+    startOffsetRef.current = clamped;
+    setPlaying(true);
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(loop);
+  }, [stopSource, loop]);
+
+  const pauseAudio = useCallback(() => {
+    if (!sourceRef.current) return;
+    const t = currentOffset();
+    stopSource();
+    startOffsetRef.current = t;
+    setPlaying(false);
+    cancelAnimationFrame(rafRef.current);
+    setTime(t);
+  }, [currentOffset, stopSource]);
+
+  useEffect(() => () => { stopSource(); cancelAnimationFrame(rafRef.current); }, [stopSource]);
+
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0); // seconds spent in the current render
@@ -269,7 +345,7 @@ export default function Editor({
   useEffect(() => { drawRef.current = draw; }, [draw]);
   useEffect(() => { timeRef.current = time; }, [time]);
   useEffect(() => { draw(time); }, [time, draw]);
-  useEffect(() => { setTime(0); }, [audioUrl]);
+  useEffect(() => { setTime(0); startOffsetRef.current = 0; stopSource(); setPlaying(false); }, [audioUrl]);
 
   // Elapsed render timer.
   useEffect(() => {
@@ -280,98 +356,55 @@ export default function Editor({
     return () => clearInterval(id);
   }, [busy, wcBusy]);
 
+  // Playback engine: decode the audio once into an in-memory buffer and drive
+  // playback with the Web Audio API instead of an <audio> element's
+  // currentTime. Some exported WAV files carry a header that leaves the
+  // browser's own seekable range wrong — only position 0 is reliably
+  // reachable, everything else silently keeps playing from wherever it was.
+  // Once the file is decoded, "seeking" is just picking a sample offset:
+  // always instant, always exact, no async seek involved at all.
   useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    const loop = () => {
-      const end = trimEndRef.current;
-      if (end > 0 && a.currentTime >= end) {
-        a.pause();
-        a.currentTime = end;
-        setTime(end);
-        return;
-      }
-      setTime(a.currentTime);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    const onPlay = () => { setPlaying(true); cancelAnimationFrame(rafRef.current); rafRef.current = requestAnimationFrame(loop); };
-    const onStop = () => { setPlaying(false); cancelAnimationFrame(rafRef.current); setTime(a.currentTime); };
-    a.addEventListener("play", onPlay);
-    a.addEventListener("pause", onStop);
-    a.addEventListener("ended", onStop);
-    return () => {
-      a.removeEventListener("play", onPlay);
-      a.removeEventListener("pause", onStop);
-      a.removeEventListener("ended", onStop);
-      cancelAnimationFrame(rafRef.current);
-    };
+    let cancelled = false;
+    audioBufferRef.current = null;
+    if (!audioUrl) return;
+    (async () => {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!audioCtxRef.current) audioCtxRef.current = new AC();
+        const res = await fetch(audioUrl);
+        const arr = await res.arrayBuffer();
+        const buf = await audioCtxRef.current.decodeAudioData(arr);
+        if (!cancelled) audioBufferRef.current = buf;
+      } catch { /* preview just won't have audio if this fails */ }
+    })();
+    return () => { cancelled = true; };
   }, [audioUrl]);
 
-const toggle = useCallback(() => {
-  const a = audioRef.current;
-  if (!a) return;
-  if (!a.paused) { a.pause(); return; }
-  // If a seek (e.g. a click on the timeline while paused) is still settling —
-  // slow for WAV, which needs to build a seek index — starting playback right
-  // away resumes from the stale pre-seek position instead of the one just
-  // requested. Wait for 'seeked' so Play always starts where the playhead is.
-  if (a.seeking) {
-    const onSeeked = () => { a.removeEventListener("seeked", onSeeked); a.play().catch(() => {}); };
-    a.addEventListener("seeked", onSeeked);
-  } else {
-    a.play().catch(() => {});
-  }
-}, []);
+  const toggle = useCallback(() => {
+    if (sourceRef.current) pauseAudio(); else playFrom(startOffsetRef.current);
+  }, []);
 
-  // Coalesce rapid scrub seeks: while a seek is still settling (slow for WAV),
-  // remember the latest target and apply it on 'seeked', so the drag's release
-  // position always wins instead of being dropped mid-seek.
-  const pendingSeekRef = useRef(null);
   const seek = useCallback((t) => {
-    const a = audioRef.current;
-    if (!a) return;
     const c = Math.min(Math.max(t, 0), duration || t || 0);
     setTime(c);
-    if (a.seeking) pendingSeekRef.current = c;
-    else { pendingSeekRef.current = null; try { a.currentTime = c; } catch (_) {} }
+    if (sourceRef.current) playFrom(c); // instant, glitch-free restart at the new spot
+    else startOffsetRef.current = c;
   }, [duration]);
-  useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    const onSeeked = () => {
-      const p = pendingSeekRef.current;
-      if (p != null) { pendingSeekRef.current = null; if (Math.abs(a.currentTime - p) > 0.02) { try { a.currentTime = p; } catch (_) {} } }
-    };
-    a.addEventListener("seeked", onSeeked);
-    return () => a.removeEventListener("seeked", onSeeked);
-  }, [audioUrl]);
 
-  // Scrubbing a *playing* WAV backward doesn't take — the seek fights live
-  // playback and the release position is lost (MP3 settles fast enough to hide
-  // this). So pause on grab, let the drag seek freely, then resume from the
-  // release point once the pointer is up.
+  // While dragging the playhead we keep audio silent (only the visual
+  // scrubber moves) and resume exactly at the release point — smoother than
+  // restarting a buffer source on every pointermove, and always lands on the
+  // exact clicked spot since there's no async seek left to race against.
   const scrubResumeRef = useRef(false);
   const onScrubStart = useCallback(() => {
-    const a = audioRef.current;
-    scrubResumeRef.current = !!(a && !a.paused);
-    if (a && !a.paused) { try { a.pause(); } catch (_) {} }
+    scrubResumeRef.current = !!sourceRef.current;
+    if (sourceRef.current) pauseAudio();
   }, []);
-  
   const onScrubEnd = useCallback(() => {
-    const a = audioRef.current;
-    if (!a || !scrubResumeRef.current) return;
+    if (!scrubResumeRef.current) return;
     scrubResumeRef.current = false;
-    const resume = () => a.play().catch(() => {});
-    // The click/drag's seek may still be settling (slow on WAV) — resuming
-    // right away restarts playback from ~wherever it still was, and the seek
-    // then lands silently in the background with no audible jump. Wait for it
-    // to actually finish before pressing play again.
-    if (a.seeking) {
-      const onSeeked = () => { a.removeEventListener("seeked", onSeeked); resume(); };
-      a.addEventListener("seeked", onSeeked);
-    } else {
-      resume();
-    }
+    playFrom(startOffsetRef.current);
   }, []);
 
   useEffect(() => {
@@ -446,9 +479,7 @@ const toggle = useCallback(() => {
               </div>
             )}
           </div>
-
-          <audio ref={audioRef} src={audioUrl} hidden />
-        </div>
+          </div>
 
         {(() => {
           const shown = warnings.filter((w) => !dismissedWarn.has(w));
