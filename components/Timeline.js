@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { transitionOf } from "../lib/transitions";
 
 function label(t) {
@@ -28,6 +28,22 @@ function Waveform({ peaks }) {
   );
 }
 
+// Nice round tick spacings, in seconds, from frame-ish precision up to an hour.
+const NICE_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+// Pick the smallest nice step that still leaves ~70px of breathing room
+// between tick labels at the given zoom level.
+function pickStep(pxPerSec) {
+  if (!pxPerSec) return 10;
+  const target = 70 / pxPerSec;
+  for (const s of NICE_STEPS) if (s >= target) return s;
+  return NICE_STEPS[NICE_STEPS.length - 1];
+}
+
+const ZOOM_STEP = 1.6;
+const MAX_PX_PER_SEC = 800;
+// Matches the CSS: .tl padding (14px each side) + .tl__gutter (22px) + .tl__row gap (8px).
+const TL_CHROME = 14 * 2 + 22 + 8;
+
 // The signature element: a scrubbable track with a fixed label gutter. Clips,
 // waveform, playhead and click-to-seek all share the track's coordinate space.
 export default function Timeline({
@@ -36,8 +52,93 @@ export default function Timeline({
   onSeek, onScrubStart, onScrubEnd, onOpen, onAdd, onResizeBoundary,
   trimEnd, onTrimChange,
 }) {
+  const wrapRef = useRef(null);  // the scrollable .tl box — used for auto-scroll + fit-width sizing
   const trackRef = useRef(null);
   const downRef = useRef(null); // pointer-down position, to tell a clip tap from a drag
+
+  // ---- horizontal zoom ------------------------------------------------------
+  // null zoomOverride = "fit": the track fills the available width exactly like
+  // before zoom existed. Once the user zooms, we hold an explicit px/sec and the
+  // track grows past the container, scrolling — this is what lets you zoom in
+  // on the waveform far enough to see individual silences and place cuts
+  // precisely, CapCut-style, instead of everything being squeezed onto one screen.
+  const [wrapW, setWrapW] = useState(0);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => setWrapW(el.clientWidth);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const fitPxPerSec = duration > 0 && wrapW > 0
+    ? Math.max(1, (wrapW - TL_CHROME) / duration)
+    : null;
+
+  const [zoomOverride, setZoomOverride] = useState(null); // px/sec, or null = fit
+  const pxPerSec = zoomOverride ?? fitPxPerSec;
+
+  const zoomIn = useCallback(() => {
+    setZoomOverride((cur) => {
+      const base = cur ?? fitPxPerSec ?? 20;
+      return Math.min(MAX_PX_PER_SEC, +(base * ZOOM_STEP).toFixed(2));
+    });
+  }, [fitPxPerSec]);
+
+  const zoomOut = useCallback(() => {
+    setZoomOverride((cur) => {
+      const base = cur ?? fitPxPerSec ?? 20;
+      const next = base / ZOOM_STEP;
+      if (fitPxPerSec != null && next <= fitPxPerSec) return null; // snap back to fit
+      return +next.toFixed(2);
+    });
+  }, [fitPxPerSec]);
+
+  const zoomReset = useCallback(() => setZoomOverride(null), []);
+
+  const zoomPct = fitPxPerSec > 0 && pxPerSec ? Math.round((pxPerSec / fitPxPerSec) * 100) : 100;
+  const canZoomIn = pxPerSec == null || pxPerSec < MAX_PX_PER_SEC - 0.01;
+  const canZoomOut = zoomOverride != null;
+
+  // "+"/"-" zoom the timeline, everywhere except while typing in a field.
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "textarea") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomIn(); }
+      else if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomOut(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomIn, zoomOut]);
+
+  // Ctrl/Cmd + wheel over the timeline also zooms, like most video editors.
+  const onWheelZoom = useCallback((e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    try { e.preventDefault(); } catch { /* passive listener, ignore */ }
+    if (e.deltaY < 0) zoomIn(); else zoomOut();
+  }, [zoomIn, zoomOut]);
+
+  // Keep the playhead in view while zoomed in and playing/seeking, without
+  // fighting the user's own manual scroll when we're already at fit-width.
+  useEffect(() => {
+    if (!zoomOverride) return;
+    const wrap = wrapRef.current;
+    if (!wrap || !duration || !pxPerSec) return;
+    const x = TL_CHROME - 14 + time * pxPerSec; // approx: gutter+gap offset before the track starts
+    const viewStart = wrap.scrollLeft;
+    const viewEnd = viewStart + wrap.clientWidth;
+    const margin = 40;
+    if (x < viewStart + margin || x > viewEnd - margin) {
+      wrap.scrollLeft = Math.max(0, x - wrap.clientWidth * 0.3);
+    }
+  }, [time, zoomOverride, pxPerSec, duration]);
+
+  // ---- scrubbing / trimming / resizing (unchanged from before zoom) --------
 
   // Scrub the playhead. Reference the track's box for x/width; the ruler and
   // audio lane are horizontally aligned with it, so this works for all three.
@@ -144,7 +245,7 @@ export default function Timeline({
     if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6 && onOpen) onOpen(name);
   }, [onOpen]);
 
-  const step = duration > 180 ? 30 : duration > 90 ? 15 : duration > 30 ? 10 : 5;
+  const step = pickStep(pxPerSec);
   const ticks = [];
   for (let t = 0; t <= duration + 0.001; t += step) ticks.push(Math.round(t));
 
@@ -154,151 +255,173 @@ export default function Timeline({
   // Give each clip a readable minimum: when the timeline is dense, widen the
   // track past the container so it scrolls horizontally instead of crushing
   // clips into slivers. Percentages resolve against this wider track, so the
-  // ruler, clips, waveform and playhead all stay aligned.
-  const rowMin = clips.length ? 30 + clips.length * 72 : 0;
+  // ruler, clips, waveform and playhead all stay aligned. Zooming in widens it
+  // further still, on top of the density floor.
+  const clipFloor = clips.length ? 30 + clips.length * 72 : 0;
+  const rowMin = zoomOverride
+    ? Math.max(clipFloor, Math.round(zoomOverride * duration))
+    : clipFloor;
 
   const trimPos = trimEnd > 0 && trimEnd < duration ? trimEnd : duration;
   const trimmed = trimPos < duration;
 
   return (
-    <div className="tl" style={rowMin ? { "--tl-min": `${rowMin}px` } : undefined}>
-      <div className="tl__row tl__row--ruler">
-        <div className="tl__gutter" aria-hidden="true" />
-        <div className="tl__ruler tl__scrub" onPointerDown={onScrubDown} title="Drag to move the playhead">
-          {ticks.map((t) => (
-            <span className="tl__tick" key={t} style={{ left: pct(t) }}>
-              <i className="tl__tickline" />
-              {label(t)}
-            </span>
-          ))}
-        </div>
+    <div className="tl-wrap">
+      <div className="tl__toolbar">
+        <button
+          type="button" className="tl__zoombtn" onClick={zoomOut} disabled={!canZoomOut}
+          title="Zoom out (-)" aria-label="Zoom out"
+        >−</button>
+        <button
+          type="button" className="tl__zoompct" onClick={zoomReset}
+          title="Reset zoom to fit the window"
+        >{zoomPct}%</button>
+        <button
+          type="button" className="tl__zoombtn" onClick={zoomIn} disabled={!canZoomIn}
+          title="Zoom in (+) — get closer to the waveform to see silences and place cuts precisely"
+          aria-label="Zoom in"
+        >+</button>
       </div>
 
-      <div className="tl__row tl__row--cuts">
-        <div className="tl__gutter" aria-hidden="true" />
-        <div className="tl__cuts">
-          {clips.map((c, i) => {
-            if (i === 0) return null;
-            const tr = transitionOf(transitionsByName && transitionsByName[c.name]);
-            const cls = ["cut"];
-            if (selectedName === c.name) cls.push("is-sel");
-            if (tr.xfade) cls.push("is-on");
-            return (
-              <button
-                key={c.name}
-                type="button"
-                className={cls.join(" ")}
-                style={{ left: pct(c.start) }}
-                title={`Transition: ${tr.label} — click to change`}
-                onPointerDown={stop}
-                onClick={() => onSelect && onSelect(c.name)}
-              >
-                {tr.icon}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="tl__row">
-        <div className="tl__gutter">
-          <span className="tl__tag">V</span>
-          <span className="tl__tag tl__tag--audio">A</span>
+      <div className="tl" ref={wrapRef} onWheel={onWheelZoom} style={rowMin ? { "--tl-min": `${rowMin}px` } : undefined}>
+        <div className="tl__row tl__row--ruler">
+          <div className="tl__gutter" aria-hidden="true" />
+          <div className="tl__ruler tl__scrub" onPointerDown={onScrubDown} title="Drag to move the playhead">
+            {ticks.map((t) => (
+              <span className="tl__tick" key={t} style={{ left: pct(t) }}>
+                <i className="tl__tickline" />
+                {label(t)}
+              </span>
+            ))}
+          </div>
         </div>
 
-        <div className="tl__track" ref={trackRef}>
-          <div className="tl__lane tl__lane--video">
+        <div className="tl__row tl__row--cuts">
+          <div className="tl__gutter" aria-hidden="true" />
+          <div className="tl__cuts">
             {clips.map((c, i) => {
-              let cStart = c.start, cDur = c.duration;
-              if (drag) {
-                if (i === drag.index) cDur = drag.sec - c.start;
-                else if (i === drag.index + 1) { cStart = drag.sec; cDur = (c.start + c.duration) - drag.sec; }
-              }
-              const style = { left: pct(cStart), width: pct(cDur) };
-
-              if (c.gap) {
-                return (
-                  <div
-                    key={c.name}
-                    className="clip clip--gap"
-                    style={style}
-                    title={`Empty · ${label(cStart)} · ${cDur.toFixed(1)}s`}
-                  >
-                    <button
-                      type="button" className="clip__add" title="Add an image here"
-                      onPointerDown={stop} onClick={() => onAdd && onAdd(c.name)}
-                    >
-                      <span className="clip__plus">+</span>
-                      <span className="clip__meta clip__meta--gap">{cDur.toFixed(1)}s</span>
-                    </button>
-                  </div>
-                );
-              }
-
-              const el = imageEls[c.name];
-              const cls = ["clip"];
-              if (c.name === activeName) cls.push("is-active");
-              if (c.name === selectedName) cls.push("is-selected");
-              if (badClips && badClips.has(c.name)) cls.push("is-bad");
-              const fname = el && el.fileName ? stem(el.fileName) : "";
+              if (i === 0) return null;
+              const tr = transitionOf(transitionsByName && transitionsByName[c.name]);
+              const cls = ["cut"];
+              if (selectedName === c.name) cls.push("is-sel");
+              if (tr.xfade) cls.push("is-on");
               return (
-                <div
+                <button
                   key={c.name}
+                  type="button"
                   className={cls.join(" ")}
-                  style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
-                  title={`${el && el.fileName ? el.fileName + " · " : ""}${label(cStart)} · ${cDur.toFixed(1)}s — click to preview / replace`}
-                  onPointerDown={(e) => { downRef.current = { x: e.clientX, y: e.clientY }; }}
-                  onClick={(e) => onClipClick(c.name, e)}
+                  style={{ left: pct(c.start) }}
+                  title={`Transition: ${tr.label} — click to change`}
+                  onPointerDown={stop}
+                  onClick={() => onSelect && onSelect(c.name)}
                 >
-                  <span className="clip__meta">{cDur.toFixed(1)}s</span>
-                  {el && el.isVideo && (
-                    <span className="clip__video" title="Video clip">▶</span>
-                  )}
-                  {motionByName && motionByName[c.name] && motionByName[c.name] !== "none" && (
-                    <span className="clip__motion" title={motionByName[c.name] === "zoomout" ? "Zoom out" : "Zoom in"}>
-                      {motionByName[c.name] === "zoomout" ? "⤡" : "⤢"}
-                    </span>
-                  )}
-                  {fname && <span className="clip__name">{fname}</span>}
-                  {i < clips.length - 1 && (
-                    <span
-                      className="clip__resize"
-                      title="Drag to change how long this image holds"
-                      onPointerDown={(e) => onResizeDown(e, i)}
-                    />
-                  )}
-                </div>
+                  {tr.icon}
+                </button>
               );
             })}
           </div>
+        </div>
 
-          <div className="tl__lane tl__lane--audio tl__scrub" onPointerDown={onScrubDown}>
-            <Waveform peaks={peaks} />
+        <div className="tl__row">
+          <div className="tl__gutter">
+            <span className="tl__tag">V</span>
+            <span className="tl__tag tl__tag--audio">A</span>
           </div>
 
-          <div className="tl__playhead" style={{ left: pct(time) }}>
-            <span className="tl__playhead-grip" />
-          </div>
+          <div className="tl__track" ref={trackRef}>
+            <div className="tl__lane tl__lane--video">
+              {clips.map((c, i) => {
+                let cStart = c.start, cDur = c.duration;
+                if (drag) {
+                  if (i === drag.index) cDur = drag.sec - c.start;
+                  else if (i === drag.index + 1) { cStart = drag.sec; cDur = (c.start + c.duration) - drag.sec; }
+                }
+                const style = { left: pct(cStart), width: pct(cDur) };
 
-          {trimmed && (
+                if (c.gap) {
+                  return (
+                    <div
+                      key={c.name}
+                      className="clip clip--gap"
+                      style={style}
+                      title={`Empty · ${label(cStart)} · ${cDur.toFixed(1)}s`}
+                    >
+                      <button
+                        type="button" className="clip__add" title="Add an image here"
+                        onPointerDown={stop} onClick={() => onAdd && onAdd(c.name)}
+                      >
+                        <span className="clip__plus">+</span>
+                        <span className="clip__meta clip__meta--gap">{cDur.toFixed(1)}s</span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                const el = imageEls[c.name];
+                const cls = ["clip"];
+                if (c.name === activeName) cls.push("is-active");
+                if (c.name === selectedName) cls.push("is-selected");
+                if (badClips && badClips.has(c.name)) cls.push("is-bad");
+                const fname = el && el.fileName ? stem(el.fileName) : "";
+                return (
+                  <div
+                    key={c.name}
+                    className={cls.join(" ")}
+                    style={{ ...style, backgroundImage: el && el.url ? `url(${el.url})` : undefined }}
+                    title={`${el && el.fileName ? el.fileName + " · " : ""}${label(cStart)} · ${cDur.toFixed(1)}s — click to preview / replace`}
+                    onPointerDown={(e) => { downRef.current = { x: e.clientX, y: e.clientY }; }}
+                    onClick={(e) => onClipClick(c.name, e)}
+                  >
+                    <span className="clip__meta">{cDur.toFixed(1)}s</span>
+                    {el && el.isVideo && (
+                      <span className="clip__video" title="Video clip">▶</span>
+                    )}
+                    {motionByName && motionByName[c.name] && motionByName[c.name] !== "none" && (
+                      <span className="clip__motion" title={motionByName[c.name] === "zoomout" ? "Zoom out" : "Zoom in"}>
+                        {motionByName[c.name] === "zoomout" ? "⤡" : "⤢"}
+                      </span>
+                    )}
+                    {fname && <span className="clip__name">{fname}</span>}
+                    {i < clips.length - 1 && (
+                      <span
+                        className="clip__resize"
+                        title="Drag to change how long this image holds"
+                        onPointerDown={(e) => onResizeDown(e, i)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="tl__lane tl__lane--audio tl__scrub" onPointerDown={onScrubDown}>
+              <Waveform peaks={peaks} />
+            </div>
+
+            <div className="tl__playhead" style={{ left: pct(time) }}>
+              <span className="tl__playhead-grip" />
+            </div>
+
+            {trimmed && (
+              <div
+                className="tl__trim-shade"
+                style={{ left: pct(trimPos), width: pct(duration - trimPos) }}
+                aria-hidden="true"
+              />
+            )}
             <div
-              className="tl__trim-shade"
-              style={{ left: pct(trimPos), width: pct(duration - trimPos) }}
-              aria-hidden="true"
-            />
-          )}
-          <div
-            className="tl__trim"
-            style={{ left: pct(trimPos) }}
-            onPointerDown={onTrimDown}
-            title="Drag to set where the export ends"
-            role="slider"
-            aria-label="Export end"
-            aria-valuemin={0}
-            aria-valuemax={Math.round(duration)}
-            aria-valuenow={Math.round(trimPos)}
-          >
-            <span className="tl__trim-grip" />
+              className="tl__trim"
+              style={{ left: pct(trimPos) }}
+              onPointerDown={onTrimDown}
+              title="Drag to set where the export ends"
+              role="slider"
+              aria-label="Export end"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(duration)}
+              aria-valuenow={Math.round(trimPos)}
+            >
+              <span className="tl__trim-grip" />
+            </div>
           </div>
         </div>
       </div>

@@ -415,6 +415,20 @@ body {
 }
 
 /* ---------- Timeline (signature) ---------- */
+.tl-wrap { display: flex; flex-direction: column; gap: 6px; }
+.tl__toolbar {
+  display: flex; align-items: center; gap: 4px; align-self: flex-end;
+}
+.tl__zoombtn, .tl__zoompct {
+  font-family: var(--font-mono); font-size: 12px; color: var(--faint);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+  cursor: pointer; line-height: 1;
+}
+.tl__zoombtn { width: 24px; height: 24px; display: grid; place-items: center; }
+.tl__zoombtn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.tl__zoombtn:disabled { opacity: .4; cursor: default; }
+.tl__zoompct { min-width: 44px; padding: 0 8px; height: 24px; }
+.tl__zoompct:hover { color: var(--text); border-color: var(--accent); }
 .tl {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 16px; padding: 12px 14px 16px; user-select: none;
@@ -422,6 +436,7 @@ body {
 }
 .tl::-webkit-scrollbar { height: 8px; }
 .tl::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+
 /* Dense timelines set --tl-min (px) so the track widens past the container and
    scrolls, instead of crushing clips into slivers. */
 .tl__row { display: flex; gap: 8px; align-items: stretch; min-width: var(--tl-min, 0px); }
