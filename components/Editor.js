@@ -307,29 +307,21 @@ export default function Editor({
     };
   }, [audioUrl]);
 
-diff --git a/components/Editor.js b/components/Editor.js
-index 5b20879..7ff3333 100644
---- a/components/Editor.js
-+++ b/components/Editor.js
-@@ -310,7 +310,17 @@ export default function Editor({
-   const toggle = useCallback(() => {
-     const a = audioRef.current;
-     if (!a) return;
--    if (a.paused) a.play(); else a.pause();
-+    if (!a.paused) { a.pause(); return; }
-+    // If a seek (e.g. a click on the timeline while paused) is still settling —
-+    // slow for WAV, which needs to build a seek index — starting playback right
-+    // away resumes from the stale pre-seek position instead of the one just
-+    // requested. Wait for 'seeked' so Play always starts where the playhead is.
-+    if (a.seeking) {
-+      const onSeeked = () => { a.removeEventListener("seeked", onSeeked); a.play().catch(() => {}); };
-+      a.addEventListener("seeked", onSeeked);
-+    } else {
-+      a.play().catch(() => {});
-+    }
-   }, []);
- 
-   // Coalesce rapid scrub seeks: while a seek is still settling (slow for WAV),
+const toggle = useCallback(() => {
+  const a = audioRef.current;
+  if (!a) return;
+  if (!a.paused) { a.pause(); return; }
+  // If a seek (e.g. a click on the timeline while paused) is still settling —
+  // slow for WAV, which needs to build a seek index — starting playback right
+  // away resumes from the stale pre-seek position instead of the one just
+  // requested. Wait for 'seeked' so Play always starts where the playhead is.
+  if (a.seeking) {
+    const onSeeked = () => { a.removeEventListener("seeked", onSeeked); a.play().catch(() => {}); };
+    a.addEventListener("seeked", onSeeked);
+  } else {
+    a.play().catch(() => {});
+  }
+}, []);
 
   // Coalesce rapid scrub seeks: while a seek is still settling (slow for WAV),
   // remember the latest target and apply it on 'seeked', so the drag's release
