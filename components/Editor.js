@@ -356,9 +356,22 @@ const toggle = useCallback(() => {
     scrubResumeRef.current = !!(a && !a.paused);
     if (a && !a.paused) { try { a.pause(); } catch (_) {} }
   }, []);
+  
   const onScrubEnd = useCallback(() => {
     const a = audioRef.current;
-    if (a && scrubResumeRef.current) { scrubResumeRef.current = false; a.play().catch(() => {}); }
+    if (!a || !scrubResumeRef.current) return;
+    scrubResumeRef.current = false;
+    const resume = () => a.play().catch(() => {});
+    // The click/drag's seek may still be settling (slow on WAV) — resuming
+    // right away restarts playback from ~wherever it still was, and the seek
+    // then lands silently in the background with no audible jump. Wait for it
+    // to actually finish before pressing play again.
+    if (a.seeking) {
+      const onSeeked = () => { a.removeEventListener("seeked", onSeeked); resume(); };
+      a.addEventListener("seeked", onSeeked);
+    } else {
+      resume();
+    }
   }, []);
 
   useEffect(() => {
