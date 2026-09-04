@@ -139,6 +139,15 @@ export default function Editor({
   const [currentType, setCurrentType] = useState("fade");
   const [inspect, setInspect] = useState(null);   // slot name open in the inspector
   const [dismissedWarn, setDismissedWarn] = useState(() => new Set()); // hidden warning texts
+  const [openPanel, setOpenPanel] = useState(null); // which side drawer is open: export/transitions/motion/fades/captions/null
+
+  // Esc closes whichever drawer is open.
+  useEffect(() => {
+    if (!openPanel) return;
+    const onKey = (e) => { if (e.key === "Escape") setOpenPanel(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openPanel]);
   // On touch devices, accept="image/*"/"video/*" makes Android open Google Photos,
   // which renames files and breaks the timestamp. Dropping accept opens the Files
   // picker instead (keeps 0-04.mp4). onPick* still filter by type, so nothing bad
@@ -528,7 +537,31 @@ export default function Editor({
         />
       </div>
 
-      <aside className="side">
+      <div className="dock">
+        {[
+          ["export", "⬇", "Export"],
+          ["transitions", "⇄", "Transitions"],
+          ["motion", "⤢", "Motion"],
+          ["fades", "◐", "Fondus"],
+          ["captions", "❝", "Sous-titres"],
+        ].map(([key, icon, lbl]) => (
+          <button
+            key={key} type="button"
+            className={`dock__btn${openPanel === key ? " is-active" : ""}`}
+            onClick={() => setOpenPanel((p) => (p === key ? null : key))}
+          >
+            <span className="dock__btn-icon">{icon}</span>{lbl}
+          </button>
+        ))}
+      </div>
+
+      {openPanel && (
+        <>
+          <div className="drawer__backdrop" onClick={() => setOpenPanel(null)} />
+          <aside className="drawer">
+            <button type="button" className="drawer__close" onClick={() => setOpenPanel(null)} aria-label="Fermer">✕</button>
+
+            {openPanel === "export" && (
         <div className="panel export">
           <h2 className="panel__h">Export</h2>
 
@@ -627,7 +660,9 @@ export default function Editor({
           {outUrl && <a className="download" href={outUrl} download="story.mp4">↓ Download MP4</a>}
           {error && <div className="note note--bad">{error}</div>}
         </div>
+            )}
 
+            {openPanel === "transitions" && (
         <div className="panel transitions">
           <div className="transitions__head">
             <div className="transitions__titlerow">
@@ -700,7 +735,9 @@ export default function Editor({
             </div>
           )}
         </div>
+            )}
 
+            {openPanel === "motion" && (
         <div className="panel">
           <h2 className="panel__h">Motion — Ken Burns zoom</h2>
           <div className="mini-h">Click an image on the timeline to set its zoom. Set the depth, or apply to all here.</div>
@@ -719,7 +756,9 @@ export default function Editor({
             <button type="button" onClick={() => applyMotionAll("none", imageClips.map((c) => c.name))}>Clear</button>
           </div>
         </div>
+            )}
 
+            {openPanel === "fades" && (
         <div className="panel">
           <h2 className="panel__h">Scene fades</h2>
           <div className="mini-h">Fade the opening and ending (video &amp; audio).</div>
@@ -734,7 +773,9 @@ export default function Editor({
             <span className="trdur__val">{fadeOut > 0 ? `${fadeOut.toFixed(1)}s` : "off"}</span>
           </label>
         </div>
+            )}
 
+            {openPanel === "captions" && (
         <div className="panel captions">
           <h2 className="panel__h">Captions</h2>
           {!(captionCues && captionCues.length) ? (
@@ -833,8 +874,10 @@ export default function Editor({
             </>
           )}
         </div>
-
-      </aside>
+            )}
+          </aside>
+        </>
+      )}
 
       <input
         ref={fileInputRef} type="file" accept={coarse ? undefined : "image/*,video/*"} hidden
