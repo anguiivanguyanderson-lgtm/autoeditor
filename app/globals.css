@@ -278,49 +278,45 @@ body {
 /* ---------- Editor: fills the viewport, no window scroll ---------- */
 .editor {
   flex: 1; min-height: 0; width: 100%; position: relative;
-  display: flex; gap: 12px;
+  display: flex; gap: 0;
 }
-.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; margin-left: 12px; }
 
-/* Slim always-visible dock of buttons that used to be a permanently-docked
-   sidebar — each opens the matching panel as an overlay instead of eating
-   screen width all the time. */
-.dock { flex-shrink: 0; width: 64px; display: flex; flex-direction: column; gap: 8px; }
+/* CapCut-style rail: a slim always-visible column of tool tabs on the left.
+   Clicking one opens an inline panel right next to it (pushing the viewer
+   over, like CapCut's own media/text/effects panel) — nothing floats over
+   the video and nothing dims the rest of the screen. */
+.dock { flex-shrink: 0; width: 68px; display: flex; flex-direction: column; gap: 6px; }
 .dock__btn {
-  width: 64px; height: 60px; padding: 0;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  width: 68px; height: 58px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: 12px;
   color: var(--muted); font-family: var(--font-ui); font-size: 10.5px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   cursor: pointer;
 }
 .dock__btn-icon { font-size: 19px; line-height: 1; }
-.dock__btn:hover { color: var(--text); border-color: var(--amber-dim); }
-.dock__btn.is-active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.dock__btn:hover { color: var(--text); background: var(--panel); }
+.dock__btn.is-active { color: var(--accent); background: var(--panel); border-color: var(--amber-dim); }
 
-.drawer__backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.5);
-  z-index: 40; animation: drawerFade .15s ease;
+.panel-rail {
+  flex-shrink: 0; width: min(320px, 34vw);
+  background: var(--panel); border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px; overflow-y: auto;
+  animation: railSlide .15s ease-out;
 }
-.drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw);
-  background: var(--bg); border-left: 1px solid var(--line);
-  z-index: 41; display: flex; flex-direction: column; gap: 12px;
-  padding: 16px 14px; overflow-y: auto;
-  animation: drawerSlide .18s ease-out;
-  box-shadow: -16px 0 40px rgba(0,0,0,.45);
-}
-.drawer__close {
-  align-self: flex-end; width: 30px; height: 30px; padding: 0;
+.panel-rail__close {
+  align-self: flex-end; width: 28px; height: 28px; padding: 0;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-  color: var(--muted); font-size: 14px; cursor: pointer;
+  color: var(--muted); font-size: 13px; cursor: pointer;
 }
-.drawer__close:hover { color: var(--text); border-color: var(--amber-dim); }
-@keyframes drawerSlide { from { transform: translateX(28px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@keyframes drawerFade { from { opacity: 0; } to { opacity: 1; } }
+.panel-rail__close:hover { color: var(--text); border-color: var(--amber-dim); }
+@keyframes railSlide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
 
 @media (max-width: 640px) {
-  .drawer { width: 100vw; }
+  .panel-rail { position: fixed; inset: 0 0 0 68px; width: auto; z-index: 40; }
 }
+
 
 .viewer {
   flex: 1; min-height: 0;

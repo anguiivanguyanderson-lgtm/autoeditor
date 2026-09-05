@@ -455,88 +455,6 @@ export default function Editor({
 
   return (
     <section className="editor">
-      <div className="main">
-        <div className="viewer">
-          <div className="viewer__frame">
-            <canvas ref={canvasRef} width={dims.width} height={dims.height} className="viewer__canvas" />
-          </div>
-
-          <div className="transport">
-            <button className="play" onClick={toggle} aria-label={playing ? "Pause" : "Play"}>
-              {playing ? "❚❚" : "►"}
-            </button>
-            <div className="time">
-              <span className="time__now">{tc(time)}</span>
-              <span className="time__sep">/</span>
-              <span className="time__total">{tc(exportDuration)}</span>
-            </div>
-            <div className="transport__spacer" />
-            <div className="history">
-              <button
-                className="hbtn" onClick={undo} disabled={!canUndo}
-                title="Undo (Ctrl+Z)" aria-label="Undo"
-              >↺</button>
-              <button
-                className="hbtn" onClick={redo} disabled={!canRedo}
-                title="Redo (Ctrl+Shift+Z)" aria-label="Redo"
-              >↻</button>
-            </div>
-            {active && (
-              <div className="nowclip">
-                <span className="nowclip__k">now</span>
-                {active.gap ? "empty gap" : `image ${activeIndex} / ${imageCount}`}
-              </div>
-            )}
-          </div>
-          </div>
-
-        {(() => {
-          const shown = warnings.filter((w) => !dismissedWarn.has(w));
-          if (!shown.length) return null;
-          return (
-            <div className="notes notes--compact">
-              {shown.length > 1 && (
-                <button
-                  type="button" className="notes__clear"
-                  onClick={() => setDismissedWarn(new Set(warnings))}
-                >Dismiss all ({shown.length})</button>
-              )}
-              {shown.map((w) => (
-                <div className="note note--dismissable" key={w}>
-                  <span>{w}</span>
-                  <button
-                    type="button" className="note__x" aria-label="Dismiss"
-                    onClick={() => setDismissedWarn((prev) => new Set(prev).add(w))}
-                  >✕</button>
-                </div>
-              ))}
-            </div>
-          );
-        })()}
-
-        <Timeline
-          clips={clips}
-          imageEls={imageEls}
-          duration={duration}
-          time={time}
-          peaks={peaks}
-          activeName={active && active.name}
-          badClips={badClips}
-          transitionsByName={transitionsByName}
-          motionByName={motionByName}
-          selectedName={selectedCut}
-          onSelect={selectClip}
-          onSeek={seek}
-          onScrubStart={onScrubStart}
-          onScrubEnd={onScrubEnd}
-          onOpen={openInspect}
-          onAdd={askAdd}
-          onResizeBoundary={resizeBoundary}
-          trimEnd={trimEnd}
-          onTrimChange={setTrimEnd}
-        />
-      </div>
-
       <div className="dock">
         {[
           ["export", "⬇", "Export"],
@@ -556,10 +474,8 @@ export default function Editor({
       </div>
 
       {openPanel && (
-        <>
-          <div className="drawer__backdrop" onClick={() => setOpenPanel(null)} />
-          <aside className="drawer">
-            <button type="button" className="drawer__close" onClick={() => setOpenPanel(null)} aria-label="Fermer">✕</button>
+          <aside className="panel-rail">
+            <button type="button" className="panel-rail__close" onClick={() => setOpenPanel(null)} aria-label="Fermer">✕</button>
 
             {openPanel === "export" && (
         <div className="panel export">
@@ -876,8 +792,89 @@ export default function Editor({
         </div>
             )}
           </aside>
-        </>
       )}
+
+      <div className="main">
+        <div className="viewer">
+          <div className="viewer__frame">
+            <canvas ref={canvasRef} width={dims.width} height={dims.height} className="viewer__canvas" />
+          </div>
+
+          <div className="transport">
+            <button className="play" onClick={toggle} aria-label={playing ? "Pause" : "Play"}>
+              {playing ? "❚❚" : "►"}
+            </button>
+            <div className="time">
+              <span className="time__now">{tc(time)}</span>
+              <span className="time__sep">/</span>
+              <span className="time__total">{tc(exportDuration)}</span>
+            </div>
+            <div className="transport__spacer" />
+            <div className="history">
+              <button
+                className="hbtn" onClick={undo} disabled={!canUndo}
+                title="Undo (Ctrl+Z)" aria-label="Undo"
+              >↺</button>
+              <button
+                className="hbtn" onClick={redo} disabled={!canRedo}
+                title="Redo (Ctrl+Shift+Z)" aria-label="Redo"
+              >↻</button>
+            </div>
+            {active && (
+              <div className="nowclip">
+                <span className="nowclip__k">now</span>
+                {active.gap ? "empty gap" : `image ${activeIndex} / ${imageCount}`}
+              </div>
+            )}
+          </div>
+          </div>
+
+        {(() => {
+          const shown = warnings.filter((w) => !dismissedWarn.has(w));
+          if (!shown.length) return null;
+          return (
+            <div className="notes notes--compact">
+              {shown.length > 1 && (
+                <button
+                  type="button" className="notes__clear"
+                  onClick={() => setDismissedWarn(new Set(warnings))}
+                >Dismiss all ({shown.length})</button>
+              )}
+              {shown.map((w) => (
+                <div className="note note--dismissable" key={w}>
+                  <span>{w}</span>
+                  <button
+                    type="button" className="note__x" aria-label="Dismiss"
+                    onClick={() => setDismissedWarn((prev) => new Set(prev).add(w))}
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        <Timeline
+          clips={clips}
+          imageEls={imageEls}
+          duration={duration}
+          time={time}
+          peaks={peaks}
+          activeName={active && active.name}
+          badClips={badClips}
+          transitionsByName={transitionsByName}
+          motionByName={motionByName}
+          selectedName={selectedCut}
+          onSelect={selectClip}
+          onSeek={seek}
+          onScrubStart={onScrubStart}
+          onScrubEnd={onScrubEnd}
+          onOpen={openInspect}
+          onAdd={askAdd}
+          onResizeBoundary={resizeBoundary}
+          trimEnd={trimEnd}
+          onTrimChange={setTrimEnd}
+        />
+      </div>
 
       <input
         ref={fileInputRef} type="file" accept={coarse ? undefined : "image/*,video/*"} hidden
